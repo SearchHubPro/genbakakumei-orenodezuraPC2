@@ -74,11 +74,14 @@
 <body>
 
 <div id="settingsView" style="display: none;">
-    <h2 style="color: #1a73e8; margin-top:0; text-align: center;"><i class="fas fa-cog"></i> システム初期設定</h2>
-    <p style="font-size:13px; color:#718096; margin-bottom:24px; text-align: center;">届いたPINコードと会社名（またはお名前）を入力してください。</p>
+    <h2 style="color: #1a73e8; margin-top:0; text-align: center;"><i class="fas fa-lock"></i> システム初期設定</h2>
+    <p style="font-size:13px; color:#718096; margin-bottom:24px; text-align: center;">メールで届いたライセンスキーとPINコードを入力してください。</p>
     
-    <label class="form-label">🔑 PINコード</label>
-    <input type="text" id="licenseInput" class="setup-input" placeholder="PINコードを入力">
+    <label class="form-label">🔑 ライセンスキー</label>
+    <input type="text" id="licenseKeyInput" class="setup-input" placeholder="例: VIP-REVOLUTION-01">
+    
+    <label class="form-label">🔐 PINコード</label>
+    <input type="text" id="pinInput" class="setup-input" placeholder="4桁のPINを入力" maxlength="4">
     
     <label class="form-label">👤 会社名（または親方のお名前）</label>
     <input type="text" id="companyNameInput" class="setup-input" placeholder="〇〇工務店、現場太郎 など">
@@ -302,11 +305,13 @@
     };
 
     const LICENSE_KEY = 'oreno_license_key';
+    const PIN_KEY = 'oreno_pin_code';
     let myLicense = localStorage.getItem(LICENSE_KEY);
+    let myPin = localStorage.getItem(PIN_KEY);
     let globalData = { attendance: [], workers: [], sites: [], months: [] };
 
     document.addEventListener('DOMContentLoaded', function() {
-        if (!myLicense) { 
+        if (!myLicense || !myPin) { 
             document.getElementById('settingsView').style.display = 'block'; 
         } else {
             checkLicenseAndBoot();
@@ -324,22 +329,28 @@
         `;
 
         try {
-            // license_keyではなく、pin_codeで照合
-            const res = await fetch(`${SUPABASE_URL}/licenses?pin_code=eq.${encodeURIComponent(myLicense)}`, { headers: supabaseHeaders });
+            // ライセンスキーとPINコードの完全一致（二要素認証）
+            const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(myLicense)}&pin_code=eq.${encodeURIComponent(myPin)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
+                if (!json[0].company_name) {
+                    alert('会社名が登録されていません。セキュリティのため初期設定からやり直してください。');
+                    resetLicense();
+                    return;
+                }
+                
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
-                // ゲストではなく、登録された会社名か親方を表示
-                document.getElementById('displayCompName').innerText = (json[0].company_name || '親方') + ' 様';
+                // 確実にSupabaseに登録されている会社名のみを表示
+                document.getElementById('displayCompName').innerText = json[0].company_name + ' 様';
                 
                 const today = new Date();
                 const defaultMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
                 document.getElementById('filterMonth').innerHTML = '<option value="' + defaultMonth + '">' + today.getFullYear() + '年' + String(today.getMonth() + 1).padStart(2, '0') + '月</option>';
                 
                 loadData();
-            } else { showErrorScreen('認証に失敗しました。PINコードが無効です。'); }
+            } else { showErrorScreen('認証失敗。キーまたはPINが間違っているか無効です。'); }
         } catch (error) { showErrorScreen('通信エラーが発生しました。'); }
     }
 
@@ -384,42 +395,46 @@
     }
 
     async function saveSettings() {
-        const pin = document.getElementById('licenseInput').value.trim();
+        const key = document.getElementById('licenseKeyInput').value.trim();
+        const pin = document.getElementById('pinInput').value.trim();
         const compNameInput = document.getElementById('companyNameInput');
         const compName = compNameInput ? compNameInput.value.trim() : '';
         
-        if (!pin || !compName) {
-            alert('PINコードと会社名の両方を入力してください。');
+        if (!key || !pin || !compName) {
+            alert('ライセンスキー、PINコード、会社名のすべてを入力してください。');
             return;
         }
 
         try {
-            // 1. PINコードの存在と有効性を確認
-            const res = await fetch(`${SUPABASE_URL}/licenses?pin_code=eq.${encodeURIComponent(pin)}`, { headers: supabaseHeaders });
+            // キーとPINの組み合わせで照合
+            const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
-                // 2. 会社名をSupabaseに保存 (PATCH)
-                await fetch(`${SUPABASE_URL}/licenses?pin_code=eq.${encodeURIComponent(pin)}`, {
+                // 会社名を保存
+                await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, {
                     method: 'PATCH',
                     headers: supabaseHeaders,
                     body: JSON.stringify({ company_name: compName })
                 });
 
-                // 3. ローカルに保存してリロード
-                localStorage.setItem(LICENSE_KEY, pin);
+                // 両方をローカルに保存してリロード
+                localStorage.setItem(LICENSE_KEY, key);
+                localStorage.setItem(PIN_KEY, pin);
                 location.reload();
             } else {
-                alert('入力されたPINコードが見つからないか、有効ではありません。');
+                alert('キーまたはPINコードが見つからないか、有効ではありません。');
             }
         } catch (e) {
             alert('設定保存中に通信エラーが発生しました。');
         }
     }
-
+    
     function resetLicense() {
         if(!confirm('初期設定画面に戻りますか？')) return;
-        localStorage.removeItem(LICENSE_KEY); location.reload();
+        localStorage.removeItem(LICENSE_KEY); 
+        localStorage.removeItem(PIN_KEY); 
+        location.reload();
     }
 
     async function loadData() {
