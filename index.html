@@ -677,7 +677,6 @@
         let actualArtificial = 0;
         globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += (r.headcount || 1); });
 
-        // AIに渡すリアルな現場データをテキスト化
         const promptData = `
         現場名: ${site}
         請負金額: ${budget}円
@@ -689,20 +688,16 @@
         `;
 
         try {
-            // Supabaseのエッジ関数を直接呼び出す
+            // 💡 修正箇所：ヘッダーを「supabaseHeaders」に統一して確実に通信を通す
             const res = await fetch(`${SUPABASE_URL}/functions/v1/ask-right-arm`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: supabaseHeaders,
                 body: JSON.stringify({ message: promptData })
             });
 
             const json = await res.json();
 
             if (json.success) {
-                // 本物のGeminiから返ってきたガチの分析アドバイスを表示
                 document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${json.reply}</div>`;
             } else {
                 document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">エラー: ${json.message}</div>`;
