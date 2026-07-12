@@ -329,21 +329,18 @@
         `;
 
         try {
-            // ライセンスキーとPINコードの完全一致（二要素認証）
+            // ライセンスキーとPINコードの照合
             const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(myLicense)}&pin_code=eq.${encodeURIComponent(myPin)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
-                if (!json[0].company_name) {
-                    alert('会社名が登録されていません。セキュリティのため初期設定からやり直してください。');
-                    resetLicense();
-                    return;
-                }
-                
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
-                // 確実にSupabaseに登録されている会社名のみを表示
-                document.getElementById('displayCompName').innerText = json[0].company_name + ' 様';
+                
+                // 💡 Supabaseを見に行くのではなく、親方が画面で入力した社名をそのまま表示
+                const compNameInput = document.getElementById('companyNameInput');
+                const displayTitle = (compNameInput && compNameInput.value.trim()) ? compNameInput.value.trim() : '親方';
+                document.getElementById('displayCompName').innerText = displayTitle + ' 様';
                 
                 const today = new Date();
                 const defaultMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
