@@ -688,10 +688,16 @@
         `;
 
         try {
-            // 💡 修正箇所：ヘッダーを「supabaseHeaders」に統一して確実に通信を通す
+            // 💡 修正箇所：余計なデータベース用ヘッダーを外し、セキュリティ（CORS）に引っかからない綺麗な鍵だけを作る
+            const aiHeaders = {
+                'apikey': supabaseHeaders['apikey'] || supabaseHeaders['apiKey'] || '',
+                'Authorization': supabaseHeaders['Authorization'] || supabaseHeaders['authorization'] || '',
+                'Content-Type': 'application/json'
+            };
+
             const res = await fetch('https://gifwnwwxviasnsjqyyzr.supabase.co/functions/v1/ask-right-arm', {
                 method: 'POST',
-                headers: supabaseHeaders,
+                headers: aiHeaders,
                 body: JSON.stringify({ message: promptData })
             });
 
@@ -704,7 +710,7 @@
             }
 
         } catch (error) {
-            document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">通信エラー: Supabase関数との接続に失敗しました。</div>`;
+            document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">通信エラー: Supabase関数との接続に失敗しました。（${error.message}）</div>`;
         }
 
         btn.disabled = false;
