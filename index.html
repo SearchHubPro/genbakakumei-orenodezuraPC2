@@ -581,12 +581,18 @@
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:#a0aec0;">該当データがありません。</td></tr>';
         } else {
             filtered.sort((a, b) => a.date < b.date ? 1 : -1).forEach((r, index) => {
-                const tr = document.createElement('tr');
                 const btnId = 'editBtn_' + index;
                 const expenses = (r.gasoline || 0) + (r.highway || 0) + (r.parking || 0) + (r.misc || 0);
                 const hc = r.headcount || 1;
-                const baseWage = r.wage * hc;
+
                 const wInfo = globalData.workers.find(w => w.name === r.name);
+                
+                // 💡 【重要】親モバイルと同じ設計に統一
+                // DBに単価（r.wage）が入っていればそれを最優先、無ければ子方マスターの単価を使う
+                const currentWage = (r.wage !== undefined && r.wage !== null && r.wage !== 0) ? Number(r.wage) : (wInfo ? wInfo.wage : 15000);
+                
+                // 💡 確定した単価をもとに、人数を掛け算して日当合計を出す
+                const baseWage = currentWage * hc;
                 const isTaxExc = wInfo && wInfo.taxType === '税別';
                 const taxAmount = isTaxExc ? Math.floor(baseWage * 0.1) : 0;
                 const rowWageTotal = baseWage + taxAmount;
@@ -599,16 +605,13 @@
                 const compBadge = r.clientCompany ? `<span class="badge badge-orange"><i class="fas fa-building"></i> ${r.clientCompany}</span>` : '<span style="color:#a0aec0;">-</span>';
                 const taxText = isTaxExc ? '税別' : '税込';
 
-                // 💡 r.wage が null や undefined の場合に備えて安全に数値化（0）する処理を入れる
-                const safeWage = Number(r.wage) || 0;
-
                 tr.innerHTML = 
                     `<td style="text-align:center; font-weight:bold;">${r.date}</td>` +
                     `<td style="font-weight:bold; color:#1a365d;">👤 ${r.name}</td>` +
                     `<td style="font-weight:bold;">${r.site}</td>` +
                     `<td>${compBadge}</td>` +
                     `<td style="text-align:center; font-weight:bold; font-size:14px;">${hc}人</td>` +
-                    `<td style="text-align:right; font-weight:900; color:#4a5568;">¥${rowWageTotal.toLocaleString()}<br><span style="font-size:11px; color:#718096; font-weight:normal;">@${safeWage.toLocaleString()} (${taxText})</span></td>` +
+                    `<td style="text-align:right; font-weight:900; color:#4a5568;">¥${rowWageTotal.toLocaleString()}<br><span style="font-size:11px; color:#718096; font-weight:normal;">@${currentWage.toLocaleString()} (${taxText})</span></td>` +
                     `<td style="text-align:right; font-weight:900; color:#07A27B;">¥${expenses.toLocaleString()}</td>` +
                     `<td style="text-align:right; font-weight:900; color:#e53e3e;">¥${finalTotal.toLocaleString()}</td>` +
                     `<td style="color:#718096; font-size:12px; white-space:normal;">${r.others || '-'}</td>` +
