@@ -81,7 +81,7 @@
     <input type="text" id="licenseKeyInput" class="setup-input" placeholder="例: VIP-REVOLUTION-01">
     
     <label class="form-label">🔐 PINコード</label>
-    <input type="text" id="pinInput" class="setup-input" placeholder="4桁のPINを入力" maxlength="4">
+    <input type="text" id="pinInput" class="setup-input" placeholder="8桁のPINを入力" maxlength="8">
     
     <label class="form-label">👤 会社名（または親方のお名前）</label>
     <input type="text" id="companyNameInput" class="setup-input" placeholder="〇〇工務店、現場太郎 など">
@@ -217,7 +217,7 @@
             <label style="font-size:13px; font-weight:bold; color:#c53030;"><i class="fas fa-user-hard-hat"></i> 新しい子方の追加</label>
             <input type="text" id="newWorker" placeholder="名前 (スペースなし推奨)" style="width:100%; padding:10px; border:1px solid #cbd5e0; border-radius:6px; margin-top:8px; box-sizing:border-box; font-weight:bold;">
             <div style="display:flex; gap:8px; margin-top:8px;">
-                <input type="text" id="newPin" placeholder="PIN (4桁)" maxlength="4" style="flex:1; padding:10px; border:1px solid #cbd5e0; border-radius:6px; font-weight:bold;">
+                <input type="text" id="newPin" placeholder="PIN (8桁)" maxlength="8" style="flex:1; padding:10px; border:1px solid #cbd5e0; border-radius:6px; font-weight:bold;">
                 <input type="number" id="newWage" placeholder="基本日当" style="flex:1.5; padding:10px; border:1px solid #cbd5e0; border-radius:6px; font-weight:bold;">
                 <select id="newTaxType" style="flex:1.2; padding:10px; border:1px solid #cbd5e0; border-radius:6px; font-weight:bold;"><option value="税込">税込</option><option value="税別">税別</option></select>
             </div>
@@ -681,42 +681,48 @@
 
         if (!budget || !unitCost) return alert('入力内容に不備があります。');
 
+        const btn = document.getElementById('aiSubmitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 右腕AIが現場データを解析中...';
+
         let actualArtificial = 0;
         globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += (r.headcount || 1); });
 
-        executeDatabaseAction({
-            action: 'saveAiSiteData', site: site, budget: budget, profit: profitPercent, unitCost: unitCost, materialCost: materialCost, progress: progress
-        });
+        // AIに渡すリアルな現場データをテキスト化
+        const promptData = `
+        現場名: ${site}
+        請負金額: ${budget}円
+        目標利益率: ${profitPercent}%
+        経費込み1人工単価: ${unitCost}円
+        想定材料代: ${materialCost}円
+        現在の出来高進捗: ${progress}%
+        今日までに実際に投入された人工数: ${actualArtificial}人
+        `;
 
-        const btn = document.getElementById('aiSubmitBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 計算中...';
-        
-        const targetProfit = budget * (profitPercent / 100);
-        const availableBudget = budget - targetProfit - materialCost;
-        const totalAllowedArtificial = Math.floor(availableBudget / unitCost);
-        const remainingArtificial = totalAllowedArtificial - actualArtificial;
+        try {
+            // Supabaseのエッジ関数を直接呼び出す
+            const res = await fetch(`${SUPABASE_URL}/functions/v1/ask-right-arm`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message: promptData })
+            });
 
-        let statusEvaluation = "";
-        let paceAdvice = "";
-        
-        if (progress > 0) {
-            const expectedTotalArtificial = actualArtificial / (progress / 100);
-            if (expectedTotalArtificial > totalAllowedArtificial) {
-                statusEvaluation = "🚨 赤字リスク警戒：このままのペースでは予算人工を超過し、目標利益が吹き飛ぶリスクがあります。";
-                paceAdvice = "現場の施工効率を上げるか、応援の手配を見直して1日の進捗スピードを上げてください。材料の無駄削減、または工程の再配置を急ぎましょう。";
+            const json = await res.json();
+
+            if (json.success) {
+                // 本物のGeminiから返ってきたガチの分析アドバイスを表示
+                document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${json.reply}</div>`;
             } else {
-                statusEvaluation = "✨ 黒字逃げ切り圏内：現在の人工ペースは目標予算内に収まっています。";
-                paceAdvice = "このまま安全第一で手戻り（やり直し）のないよう、現在の施工品質をキープして進めていければガチで黒字を確保できます。";
+                document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">エラー: ${json.message}</div>`;
             }
-        } else {
-            statusEvaluation = "📊 初期分析：データ蓄積中。";
-            paceAdvice = "算出された予算内（あと何人工で収めるか）を目安に、日々の人工手配をコントロールしてください。";
+
+        } catch (error) {
+            document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">通信エラー: Supabase関数との接続に失敗しました。</div>`;
         }
 
-        const replyHtml = `【右腕のガチ分析結果】\n---------------------------------\n■ 現場名: ${site}\n■ 目標の残り予算人工: あと 【 ${remainingArtificial} 人工 】 以内\n(※材料費と目標利益を確保した上での許容残数です)\n\n■ 現在の状況評価:\n${statusEvaluation}\n\n■ 親方への具体的なアドバイス:\n${paceAdvice}`;
-
-        document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${replyHtml}</div>`;
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-magic"></i> 右腕にアドバイスをもらう';
     }
@@ -741,7 +747,7 @@
                 <div style="padding:12px; border-bottom:1px solid #fed7d7; margin-bottom:8px; background:#fff; border-radius:6px;">
                     <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
                         <input type="text" id="editWName_${idx}" value="${w.name}" style="flex:1.5; padding:6px;" class="setup-input" placeholder="名前">
-                        <input type="text" id="editWPin_${idx}" value="${w.pin || ''}" style="flex:1; padding:6px;" class="setup-input" placeholder="PIN" maxlength="4">
+                        <input type="text" id="editWPin_${idx}" value="${w.pin || ''}" style="flex:1; padding:6px;" class="setup-input" placeholder="PIN" maxlength="8">
                         <input type="number" id="editWWage_${idx}" value="${w.wage}" style="flex:1.2; padding:6px;" class="setup-input" placeholder="日当">
                         <select id="editWTax_${idx}" style="flex:1.2; padding:6px; height:38px; font-weight:bold;">
                             <option value="税込" ${w.taxType !== '税別' ? 'selected' : ''}>税込</option>
