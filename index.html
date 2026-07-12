@@ -302,11 +302,17 @@
     // ==========================================
     const SUPABASE_URL = "https://gifwnwwxviasnsjqyyzr.supabase.co/rest/v1";
     const SUPABASE_KEY = "sb_publishable_Vhhe7TrF5XsP6vF_xOm_Kw_P2R0B5wi";
+    
+    // 💡 ローカルに保存されているライセンスキーを取得
+    const currentLicense = localStorage.getItem('oreno_boss_license') || "";
+
+    // 💡 ヘッダーに x-license-key を追加してPC版も壁を突破する
     const supabaseHeaders = {
         "apikey": SUPABASE_KEY,
         "Authorization": `Bearer ${SUPABASE_KEY}`,
         "Content-Type": "application/json",
-        "Prefer": "return=representation"
+        "Prefer": "return=representation",
+        "x-license-key": currentLicense
     };
 
     const LICENSE_KEY = 'oreno_license_key';
@@ -842,6 +848,7 @@
         closeModal('editModal');
     }
 
+    // 🛠️ 3. マスター登録（現場・子方）時の埋め込み対応版
     async function addMaster(action, btn) {
         let p = { action: action };
         if (action === 'addSite') {
@@ -851,10 +858,12 @@
             const w = document.getElementById('newWorker').value.trim(); const pin = document.getElementById('newPin').value.trim(); const wage = document.getElementById('newWage').value;
             const closing = document.getElementById('newClosing').value; const pay = document.getElementById('newPayDate').value.trim(); const tax = document.getElementById('newTaxType').value;
             if(!w || !pin || !wage) return alert('入力項目が足りません');
-            // 💡 4桁入力されているかのチェックを念のため入れるならここ（必要に応じて）
             if(pin.length !== 4) return alert('PINコードは4桁で入力してください');
             p.newWorker = w; p.newPin = pin; p.newWage = Number(wage); p.closing = Number(closing); p.payDate = pay; p.taxType = tax;
         }
+
+        // 💡 登録するマスターデータ（現場・子方）に自分のライセンスキーを刻印する
+        p.license_key = myLicense;
 
         btn.disabled = true;
         await executeDatabaseAction(p);
@@ -863,6 +872,7 @@
         btn.disabled = false;
     }
 
+    // 🛠️ 2. 出面保存・編集時のライセンスキー埋め込み対応版
     async function executeDatabaseAction(payload) {
         try {
             let targetUrl, options = { headers: supabaseHeaders };
@@ -872,29 +882,41 @@
                 options.body = JSON.stringify({
                     work_date: payload.date, site_name: payload.site, worker_name: payload.name, wage: payload.wage, 
                     headcount: payload.headcount, client_company: payload.clientCompany || '', others: payload.others, 
-                    gasoline: payload.gasoline, highway: payload.highway, parking: payload.parking, misc: payload.misc
+                    gasoline: payload.gasoline, highway: payload.highway, parking: payload.parking, misc: payload.misc,
+                    license_key: myLicense // 💡 編集保存時にもキーを確実に上書き
                 });
                 targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
                 
             } else if (payload.action === 'deleteAttendance') {
                 options.method = 'DELETE';
-                // 💡 payload.row ではなく、確実に画面の隠し入力欄から数値のIDを取得して送信する
                 const deleteId = document.getElementById('editRow').value;
                 targetUrl = `${SUPABASE_URL}/attendance?id=eq.${deleteId}`;
                 
             } else if (payload.action === 'addSite') {
                 options.method = 'POST';
-                options.body = JSON.stringify({ name: payload.newSite, company: payload.clientCompany || '' });
+                options.body = JSON.stringify({ 
+                    name: payload.newSite, 
+                    company: payload.clientCompany || '',
+                    license_key: myLicense // 💡 現場追加時にキーを刻印！
+                });
                 targetUrl = `${SUPABASE_URL}/sites`;
                 
             } else if (payload.action === 'addWorker') {
                 options.method = 'POST';
-                options.body = JSON.stringify({ name: payload.newWorker, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
+                options.body = JSON.stringify({ 
+                    name: payload.newWorker, pin: payload.newPin, wage: payload.newWage, 
+                    closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType,
+                    license_key: myLicense // 💡 子方追加時にキーを刻印！
+                });
                 targetUrl = `${SUPABASE_URL}/workers`;
                 
             } else if (payload.action === 'updateWorker') {
                 options.method = 'PATCH';
-                options.body = JSON.stringify({ name: payload.newName, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
+                options.body = JSON.stringify({ 
+                    name: payload.newName, pin: payload.newPin, wage: payload.newWage, 
+                    closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType,
+                    license_key: myLicense // 💡 子方編集時にもキーを維持
+                });
                 targetUrl = `${SUPABASE_URL}/workers?name=eq.${encodeURIComponent(payload.oldName)}`;
                 
             } else if (payload.action === 'deleteWorker') {
@@ -942,18 +964,13 @@
         let totalParking = 0, totalMisc = 0, totalExpenses = 0, grandTotal = 0;
 
         globalData.attendance.filter(r => {
-            // 💡 1. 削除されたデータ（IDが空のもの）は絶対に除外
             if (!r.row) return false;
-
-            // 💡 2. 子方名のフィルター
             if (fWorker !== 'ALL' && r.name !== fWorker) return false;
 
-            // 💡 3. 締め日のフィルター
             const wInfo = globalData.workers.find(w => w.name === r.name);
             const activeClosing = wInfo ? (wInfo.closing || 31) : 31;
             if (fClosing !== 'ALL' && String(activeClosing) !== fClosing) return false;
 
-            // 💡 4. 【重要】月（期間）のフィルター（画面のロジックと完全に同期）
             if (fMonth !== 'ALL') {
                 const closingNum = (fClosing !== 'ALL') ? Number(fClosing) : activeClosing;
                 let [targetYear, targetMonth] = fMonth.split('-').map(Number);
@@ -971,7 +988,6 @@
                 if (r.date < startP || r.date > endP) return false;
             }
 
-            // 💡 5. 【重要】検索キーワードのフィルター（画面のロジックと完全に同期）
             return !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || (r.others && r.others.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
 
         }).sort((a, b)=> a.date < b.date ? 1 : -1).forEach(r => {
