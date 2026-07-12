@@ -558,14 +558,25 @@
 
             if (fMonth !== 'ALL') {
                 let startP = null, endP = null;
-                const closingNum = (fClosing !== 'ALL') ? Number(fClosing) : activeClosing;
                 let [targetYear, targetMonth] = fMonth.split('-').map(Number);
                 let startDt, endDt;
-                if (closingNum === 31) {
-                    startDt = new Date(targetYear, targetMonth - 1, 1); endDt = new Date(targetYear, targetMonth - 1, 31);
+
+                // 💡 画面が「全ての締め日条件（ALL）」のときは、子方の設定を無視して「カレンダー通りの1日〜月末」で判定する
+                if (fClosing === 'ALL') {
+                    startDt = new Date(targetYear, targetMonth - 1, 1);
+                    endDt = new Date(targetYear, targetMonth, 0); // 💡 その月の末日を自動計算
                 } else {
-                    startDt = new Date(targetYear, targetMonth - 2, closingNum + 1); endDt = new Date(targetYear, targetMonth - 1, closingNum);
+                    // 💡 特定の締め日が選ばれているときは、従来通りその締め日のサイクルで計算する
+                    const closingNum = Number(fClosing);
+                    if (closingNum === 31) {
+                        startDt = new Date(targetYear, targetMonth - 1, 1); 
+                        endDt = new Date(targetYear, targetMonth - 1, 31);
+                    } else {
+                        startDt = new Date(targetYear, targetMonth - 2, closingNum + 1); 
+                        endDt = new Date(targetYear, targetMonth - 1, closingNum);
+                    }
                 }
+
                 const _fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
                 startP = _fmt(startDt); endP = _fmt(endDt);
                 if (r.date < startP || r.date > endP) return false;
