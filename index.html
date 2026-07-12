@@ -458,8 +458,8 @@
                 date: r.work_date, 
                 site: r.site_name, 
                 name: r.worker_name, 
-                // 💡 データベース側のothers、または過去データにremarksが混ざっている場合の両方を安全にケア
                 others: r.others || r.remarks || "",
+                // 💡 データベースから取得した「wage」をここで確実に引き継ぐ（これでPC版でも計算が走る）
                 wage: r.wage, 
                 headcount: r.headcount, 
                 clientCompany: r.client_company,
