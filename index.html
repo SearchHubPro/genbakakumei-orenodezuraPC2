@@ -329,7 +329,6 @@
         `;
 
         try {
-            // ライセンスキーとPINコードの照合
             const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(myLicense)}&pin_code=eq.${encodeURIComponent(myPin)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
@@ -337,10 +336,9 @@
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
                 
-                // 💡 Supabaseを見に行くのではなく、親方が画面で入力した社名をそのまま表示
-                const compNameInput = document.getElementById('companyNameInput');
-                const displayTitle = (compNameInput && compNameInput.value.trim()) ? compNameInput.value.trim() : '親方';
-                document.getElementById('displayCompName').innerText = displayTitle + ' 様';
+                // 💡 保存された会社名をローカルストレージから確実に読み出す
+                const savedCompName = localStorage.getItem('oreno_company_name') || '親方';
+                document.getElementById('displayCompName').innerText = savedCompName + ' 様';
                 
                 const today = new Date();
                 const defaultMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
@@ -403,21 +401,15 @@
         }
 
         try {
-            // キーとPINの組み合わせで照合
+            // キーとPINの組み合わせをSupabaseで確認
             const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
-                // 会社名を保存
-                await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, {
-                    method: 'PATCH',
-                    headers: supabaseHeaders,
-                    body: JSON.stringify({ company_name: compName })
-                });
-
-                // 両方をローカルに保存してリロード
+                // ローカルにキー、PIN、そして【会社名】を確実に保存する
                 localStorage.setItem(LICENSE_KEY, key);
                 localStorage.setItem(PIN_KEY, pin);
+                localStorage.setItem('oreno_company_name', compName); // 👈ここを追加
                 location.reload();
             } else {
                 alert('キーまたはPINコードが見つからないか、有効ではありません。');
