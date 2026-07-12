@@ -921,18 +921,38 @@
         let totalParking = 0, totalMisc = 0, totalExpenses = 0, grandTotal = 0;
 
         globalData.attendance.filter(r => {
-            // 💡 【重要】削除されたデータ（IDが空のもの）や不正なデータはCSVに含めない
-            if (!r.row || r.row === undefined || r.row === null) return false;
+            // 💡 1. 削除されたデータ（IDが空のもの）は絶対に除外
+            if (!r.row) return false;
 
+            // 💡 2. 子方名のフィルター
             if (fWorker !== 'ALL' && r.name !== fWorker) return false;
-            if (fWorker === 'ALL' && fClosing !== 'ALL') {
-                const wInfo = globalData.workers.find(w => w.name === r.name);
-                if (!wInfo || String(wInfo.closing || 31) !== fClosing) return false;
+
+            // 💡 3. 締め日のフィルター
+            const wInfo = globalData.workers.find(w => w.name === r.name);
+            const activeClosing = wInfo ? (wInfo.closing || 31) : 31;
+            if (fClosing !== 'ALL' && String(activeClosing) !== fClosing) return false;
+
+            // 💡 4. 【重要】月（期間）のフィルター（画面のロジックと完全に同期）
+            if (fMonth !== 'ALL') {
+                const closingNum = (fClosing !== 'ALL') ? Number(fClosing) : activeClosing;
+                let [targetYear, targetMonth] = fMonth.split('-').map(Number);
+                let startDt, endDt;
+                if (closingNum === 31) {
+                    startDt = new Date(targetYear, targetMonth - 1, 1); 
+                    endDt = new Date(targetYear, targetMonth - 1, 31);
+                } else {
+                    startDt = new Date(targetYear, targetMonth - 2, closingNum + 1); 
+                    endDt = new Date(targetYear, targetMonth - 1, closingNum);
+                }
+                const _fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                const startP = _fmt(startDt); 
+                const endP = _fmt(endDt);
+                if (r.date < startP || r.date > endP) return false;
             }
-            if (startPeriod && endPeriod) {
-                const recDate = new Date(r.date); if (recDate < startPeriod || recDate > endPeriod) return false;
-            }
-            return !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
+
+            // 💡 5. 【重要】検索キーワードのフィルター（画面のロジックと完全に同期）
+            return !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || (r.others && r.others.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
+
         }).sort((a, b)=> a.date < b.date ? 1 : -1).forEach(r => {
             let others = r.others ? r.others.replace(/"/g, '""').replace(/\n/g, ' ') : '';
             let hc = r.headcount || 1; let baseWage = r.wage * hc; let wInfo = globalData.workers.find(w => w.name === r.name);
