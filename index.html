@@ -921,6 +921,9 @@
         let totalParking = 0, totalMisc = 0, totalExpenses = 0, grandTotal = 0;
 
         globalData.attendance.filter(r => {
+            // 💡 【重要】削除されたデータ（IDが空のもの）や不正なデータはCSVに含めない
+            if (!r.row || r.row === undefined || r.row === null) return false;
+
             if (fWorker !== 'ALL' && r.name !== fWorker) return false;
             if (fWorker === 'ALL' && fClosing !== 'ALL') {
                 const wInfo = globalData.workers.find(w => w.name === r.name);
