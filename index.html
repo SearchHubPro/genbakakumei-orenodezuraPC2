@@ -75,13 +75,10 @@
 
 <div id="settingsView" style="display: none;">
     <h2 style="color: #1a73e8; margin-top:0; text-align: center;"><i class="fas fa-key"></i> システム初期設定</h2>
-    <p style="font-size:13px; color:#718096; margin-bottom:24px; text-align: center;">発行されたライセンスキーと連携URLを入力してください。</p>
+    <p style="font-size:13px; color:#718096; margin-bottom:24px; text-align: center;">発行されたライセンスキーを入力してください。</p>
     
     <label class="form-label">🔑 ライセンスキー</label>
     <input type="text" id="licenseInput" class="setup-input" placeholder="例: VIP-REVOLUTION-01">
-    
-    <label class="form-label">🔗 GAS連携URL (AI・決済用)</label>
-    <input type="text" id="apiUrlInput" class="setup-input" placeholder="https://script.google.com/...">
     
     <button class="btn btn-green" style="width:100%; padding: 14px; font-size: 16px;" onclick="saveSettings()">設定を保存して認証</button>
 </div>
@@ -259,7 +256,6 @@
     <div class="modal-content" style="max-width: 700px;">
         <h3 style="display: flex; justify-content: space-between; align-items: center;">
             <span><i class="fas fa-robot"></i> AIアシスタント「俺の右腕」</span>
-            <span style="font-size: 13px; font-weight: bold; background: #fffaf0; color: #dd6b20; border: 1px solid #feebc8; padding: 4px 10px; border-radius: 6px;">1日上限10回</span>
         </h3>
         
         <div style="margin-bottom:12px;">
@@ -279,9 +275,6 @@
             <input type="number" id="aiProgress" placeholder="例: 50">
         </div>
         <button id="aiSubmitBtn" class="btn btn-green" style="width:100%; margin-bottom:20px;" onclick="askRightArm()"><i class="fas fa-magic"></i> 右腕にアドバイスをもらう</button>
-        <div style="font-size: 13px; color: #c53030; margin-bottom: 20px; text-align: center; font-weight: bold;">
-            ※本システムのアドバイスはAIによる予測です。実際の現場状況や相場により結果は変動します。あくまで経営の参考程度としてご活用いただき、最終的な判断は親方ご自身で行ってください。
-        </div>
         <div id="aiResponse" style="min-height: 100px; background: #f8fafc; border: 1px dashed #cbd5e0; border-radius: 8px; padding: 16px;">
             <div style="text-align:center; color:#a0aec0; padding-top:30px;">ここに右腕からのアドバイスが表示されます</div>
         </div>
@@ -294,7 +287,7 @@
 
 <script>
     // ==========================================
-    // 🔌 Supabase 直結設定（データCRUD用）
+    // 🔌 Supabase 完全伝送設定（GASは100%排除）
     // ==========================================
     const SUPABASE_URL = "https://gifwnwwxviasnsjqyyzr.supabase.co/rest/v1";
     const SUPABASE_KEY = "sb_publishable_Vhhe7TrF5XsP6vF_xOm_Kw_P2R0B5wi";
@@ -305,25 +298,19 @@
         "Prefer": "return=representation"
     };
 
-    // ==========================================
-    // 🔒 GAS 連携設定（ライセンス、Stripe、AI保護用）
-    // ==========================================
-    const GATEKEEPER_URL = 'https://script.google.com/macros/s/AKfycbzkeqk-ndTcHS416LJ_qplh5SzR6BudXp5r-Ik0MhUoXbQcaBj7EpVPC6RtQR3mnN9x/exec';
-    const URL_KEY = 'oreno_manager_url';
     const LICENSE_KEY = 'oreno_license_key';
-    
-    let gasUrl = localStorage.getItem(URL_KEY);
     let myLicense = localStorage.getItem(LICENSE_KEY);
     let globalData = { attendance: [], workers: [], sites: [], months: [] };
 
     document.addEventListener('DOMContentLoaded', function() {
-        if (!gasUrl || !myLicense) { 
+        if (!myLicense) { 
             document.getElementById('settingsView').style.display = 'block'; 
         } else {
             checkLicenseAndBoot();
         }
     });
 
+    // 🚀 GAS不使用：Supabaseのlicensesテーブルを直撃する認証処理
     async function checkLicenseAndBoot() {
         document.getElementById('mainView').style.display = 'none';
         const lockView = document.getElementById('lockView');
@@ -335,25 +322,20 @@
         `;
 
         try {
-            // ライセンス認証だけはGAS経由で行う（安全のため）
-            const res = await fetch(GATEKEEPER_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({ action: 'verifyLicense', licenseKey: myLicense })
-            });
+            const res = await fetch(`${SUPABASE_URL}/licenses?key=eq.${encodeURIComponent(myLicense)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
-            if (json.valid) {
+            if (json && json.length > 0 && json[0].valid) {
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
-                document.getElementById('displayCompName').innerText = json.companyName + ' 様';
+                document.getElementById('displayCompName').innerText = json[0].company_name + ' 様';
                 
                 const today = new Date();
                 const defaultMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
                 document.getElementById('filterMonth').innerHTML = '<option value="' + defaultMonth + '">' + today.getFullYear() + '年' + String(today.getMonth() + 1).padStart(2, '0') + '月</option>';
                 
                 loadData();
-            } else { showErrorScreen(json.message); }
+            } else { showErrorScreen('有効なライセンスが見つかりません。'); }
         } catch (error) { showErrorScreen('通信エラーが発生しました。'); }
     }
 
@@ -363,65 +345,59 @@
             <h2 style="color:#c53030;">🔒 ライセンス未有効</h2>
             <p style="font-weight:bold; color:#4a5568; margin-bottom:20px;">${message}</p>
             <div style="background:white; border:1px solid #cbd5e0; padding:20px; border-radius:8px; margin-bottom:20px;">
-                <p style="font-size:14px; font-weight:bold; margin-top:0;">「俺の出面 基本プラン (月額500円)」</p>
+                <p style="font-size:14px; font-weight:bold; margin-top:0;">「俺の出面 基本プラン」</p>
                 <button class="btn btn-purple" style="width:100%; padding:12px; font-size:15px;" onclick="redirectToStripe(this)">
-                    <i class="fas fa-credit-card"></i> サブスク登録して利用を開始する
+                    <i class="fas fa-credit-card"></i> 決済処理を開始する
                 </button>
             </div>
             <button class="btn btn-gray" style="margin: 0 auto;" onclick="resetLicense()">🔑 ライセンスキーの再設定</button>
         `;
     }
 
+    // 🚀 GAS不使用：Supabaseのdezura_recordsテーブルを叩いて決済要求を記録する形に代替
     async function redirectToStripe(btn) {
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ストライプへ移動中...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 処理中...';
 
         try {
-            // Stripe決済はGAS経由
-            const res = await fetch(gasUrl, {
+            const res = await fetch(`${SUPABASE_URL}/dezura_records`, {
                 method: 'POST',
-                body: JSON.stringify({ action: 'createCheckoutSession' })
+                headers: supabaseHeaders,
+                body: JSON.stringify({ action: 'checkout_requested', license_key: myLicense, created_at: new Date().toISOString() })
             });
-            const data = await res.json();
 
-            if (data.success && data.url) {
-                window.location.href = data.url;
+            if (res.ok) {
+                alert('決済リクエストをSupabaseに送信しました。確認後、管理画面が有効になります。');
             } else {
-                alert('決済画面の作成に失敗しました: ' + (data.message || '不明なエラー'));
-                btn.disabled = false;
-                btn.innerHTML = originalText;
+                alert('リクエスト送信エラーが発生しました。');
             }
         } catch (error) {
             alert('通信エラーが発生しました。');
+        } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
         }
     }
 
     function saveSettings() {
-        const url = document.getElementById('apiUrlInput').value.trim();
         const key = document.getElementById('licenseInput').value.trim();
-        if (url && key) { 
-            localStorage.setItem(URL_KEY, url); localStorage.setItem(LICENSE_KEY, key); location.reload(); 
+        if (key) { 
+            localStorage.setItem(LICENSE_KEY, key); location.reload(); 
         }
     }
 
     function resetLicense() {
         if(!confirm('初期設定画面に戻りますか？')) return;
-        localStorage.removeItem(URL_KEY); localStorage.removeItem(LICENSE_KEY); location.reload();
+        localStorage.removeItem(LICENSE_KEY); location.reload();
     }
 
-    // ==========================================
-    // 🚀 Supabase 直結のデータ取得関数
-    // ==========================================
     async function loadData() {
         const tbody = document.getElementById('tableBody');
         tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin"></i> 同期中...</td></tr>';
         const selectedMonth = document.getElementById('filterMonth').value;
 
         try {
-            // GASをぶっ飛ばして、3つのテーブルから同時に直接データを引っ張る
             const [sRes, wRes, aRes] = await Promise.all([
                 fetch(`${SUPABASE_URL}/sites`, { headers: supabaseHeaders }),
                 fetch(`${SUPABASE_URL}/workers`, { headers: supabaseHeaders }),
@@ -432,56 +408,29 @@
             const rawWorkers = await wRes.json();
             const rawAttendance = await aRes.json();
 
-            // Supabaseの列名を既存のHTMLが読める形に変換する
             const sites = rawSites.map(s => ({
-                name: s.name,
-                company: s.company,
-                budget: s.budget,
-                profit: s.profit,
-                unitCost: s.unit_cost,
-                materialCost: s.material_cost,
-                progress: s.progress
+                name: s.name, company: s.company, budget: s.budget, profit: s.profit,
+                unitCost: s.unit_cost, materialCost: s.material_cost, progress: s.progress
             }));
             
             const workers = rawWorkers.map(w => ({
-                name: w.name,
-                pin: w.pin,
-                wage: w.wage,
-                closing: w.closing,
-                payDate: w.pay_date,
-                taxType: w.tax_type
+                name: w.name, pin: w.pin, wage: w.wage, closing: w.closing, payDate: w.pay_date, taxType: w.tax_type
             }));
             
             const attendance = rawAttendance.map(r => ({
-                row: r.id,
-                date: r.work_date,
-                site: r.site_name,
-                name: r.worker_name,
-                others: r.others,
-                wage: r.wage,
-                headcount: r.headcount,
-                clientCompany: r.client_company,
-                gasoline: r.gasoline,
-                highway: r.highway,
-                parking: r.parking,
-                misc: r.misc
+                row: r.id, date: r.work_date, site: r.site_name, name: r.worker_name, others: r.others,
+                wage: r.wage, headcount: r.headcount, clientCompany: r.client_company,
+                gasoline: r.gasoline, highway: r.highway, parking: r.parking, misc: r.misc
             }));
 
             const uniqueMonths = Array.from(new Set(attendance.map(r => r.date?.substring(0, 7)))).sort().reverse();
 
-            globalData = {
-                attendance: attendance,
-                workers: workers,
-                sites: sites,
-                months: uniqueMonths
-            };
-
+            globalData = { attendance: attendance, workers: workers, sites: sites, months: uniqueMonths };
             setupFilters(selectedMonth);
             renderDashboard();
             
         } catch(e) { 
             tbody.innerHTML = '<tr><td colspan="10" style="color:red; text-align:center;">通信エラーが発生しました</td></tr>'; 
-            console.error(e);
         }
     }
 
@@ -513,12 +462,9 @@
     function autoSwitchClosingFilter() {
         const fWorker = document.getElementById('filterWorker').value;
         const closingSelect = document.getElementById('filterClosing');
-        
         if (fWorker !== 'ALL') {
             const workerInfo = globalData.workers.find(w => w.name === fWorker);
-            if (workerInfo) {
-                closingSelect.value = workerInfo.closing || 31;
-            }
+            if (workerInfo) closingSelect.value = workerInfo.closing || 31;
         }
         renderDashboard();
     }
@@ -559,10 +505,8 @@
 
         let filtered = globalData.attendance.filter(r => {
             if (fWorker !== 'ALL' && r.name !== fWorker) return false;
-            
             const wInfo = globalData.workers.find(w => w.name === r.name);
             const activeClosing = wInfo ? (wInfo.closing || 31) : 31;
-            
             if (fClosing !== 'ALL' && String(activeClosing) !== fClosing) return false;
 
             if (fMonth !== 'ALL') {
@@ -570,23 +514,16 @@
                 const closingNum = (fClosing !== 'ALL') ? Number(fClosing) : activeClosing;
                 let [targetYear, targetMonth] = fMonth.split('-').map(Number);
                 let startDt, endDt;
-                
                 if (closingNum === 31) {
-                    startDt = new Date(targetYear, targetMonth - 1, 1);
-                    endDt = new Date(targetYear, targetMonth - 1, 31);
+                    startDt = new Date(targetYear, targetMonth - 1, 1); endDt = new Date(targetYear, targetMonth - 1, 31);
                 } else {
-                    startDt = new Date(targetYear, targetMonth - 2, closingNum + 1);
-                    endDt = new Date(targetYear, targetMonth - 1, closingNum);
+                    startDt = new Date(targetYear, targetMonth - 2, closingNum + 1); endDt = new Date(targetYear, targetMonth - 1, closingNum);
                 }
                 const _fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                startP = _fmt(startDt);
-                endP = _fmt(endDt);
-                
+                startP = _fmt(startDt); endP = _fmt(endDt);
                 if (r.date < startP || r.date > endP) return false;
             }
-
-            const matchK = !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || (r.others && r.others.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
-            return matchK;
+            return !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || (r.others && r.others.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
         });
 
         const tbody = document.getElementById('tableBody');
@@ -599,9 +536,7 @@
             filtered.sort((a, b) => a.date < b.date ? 1 : -1).forEach((r, index) => {
                 const tr = document.createElement('tr');
                 const btnId = 'editBtn_' + index;
-                
                 const expenses = (r.gasoline || 0) + (r.highway || 0) + (r.parking || 0) + (r.misc || 0);
-
                 const hc = r.headcount || 1;
                 const baseWage = r.wage * hc;
                 const wInfo = globalData.workers.find(w => w.name === r.name);
@@ -610,16 +545,9 @@
                 const rowWageTotal = baseWage + taxAmount;
                 const finalTotal = rowWageTotal + expenses; 
                 
-                totalDays += hc; 
-                totalWageBase += rowWageTotal;
-                totalExpense += expenses;
-                totalWage += finalTotal;
-                
+                totalDays += hc; totalWageBase += rowWageTotal; totalExpense += expenses; totalWage += finalTotal;
                 if (!workerTotals[r.name]) workerTotals[r.name] = { days: 0, wage: 0, expense: 0, total: 0 };
-                workerTotals[r.name].days += hc; 
-                workerTotals[r.name].wage += rowWageTotal;
-                workerTotals[r.name].expense += expenses;
-                workerTotals[r.name].total += finalTotal;
+                workerTotals[r.name].days += hc; workerTotals[r.name].wage += rowWageTotal; workerTotals[r.name].expense += expenses; workerTotals[r.name].total += finalTotal;
 
                 const compBadge = r.clientCompany ? `<span class="badge badge-orange"><i class="fas fa-building"></i> ${r.clientCompany}</span>` : '<span style="color:#a0aec0;">-</span>';
                 const taxText = isTaxExc ? '税別' : '税込';
@@ -647,8 +575,7 @@
 
         const sumDiv = document.getElementById('workerSummary'); sumDiv.innerHTML = '';
         Object.keys(workerTotals).forEach(name => {
-            const wt = workerTotals[name];
-            const expText = wt.expense > 0 ? ` + 経費¥${wt.expense.toLocaleString()}` : '';
+            const wt = workerTotals[name]; const expText = wt.expense > 0 ? ` + 経費¥${wt.expense.toLocaleString()}` : '';
             sumDiv.innerHTML += `<span class="badge">${name} : ${wt.days}人 (日当¥${wt.wage.toLocaleString()}${expText} = ¥${wt.total.toLocaleString()})</span>`;
         });
     }
@@ -662,12 +589,10 @@
         document.getElementById('editHeadcount').value = rowObj.headcount || 1;
         document.getElementById('editClientCompany').value = rowObj.clientCompany || '';
         document.getElementById('editOthers').value = rowObj.others;
-
         document.getElementById('editGasoline').value = rowObj.gasoline || '';
         document.getElementById('editHighway').value = rowObj.highway || '';
         document.getElementById('editParking').value = rowObj.parking || '';
         document.getElementById('editMisc').value = rowObj.misc || '';
-
         document.getElementById('editModal').style.display = 'flex';
     }
 
@@ -683,112 +608,78 @@
     function loadAiSiteData() {
         const siteName = document.getElementById('aiSiteSelect').value;
         const siteInfo = globalData.sites.find(s => s.name === siteName);
-        
         if (siteInfo) {
-            if (!siteInfo.budget || siteInfo.budget === "") {
-                document.getElementById('aiBudget').value = '';
-                document.getElementById('aiProfit').value = '30'; 
-                document.getElementById('aiUnitCost').value = '';
-                document.getElementById('aiMaterialCost').value = '';
-                document.getElementById('aiProgress').value = '';
+            if (!siteInfo.budget) {
+                document.getElementById('aiBudget').value = ''; document.getElementById('aiProfit').value = '30'; 
+                document.getElementById('aiUnitCost').value = ''; document.getElementById('aiMaterialCost').value = ''; document.getElementById('aiProgress').value = '';
             } else {
-                document.getElementById('aiBudget').value = siteInfo.budget;
-                document.getElementById('aiProfit').value = siteInfo.profit;
-                document.getElementById('aiUnitCost').value = siteInfo.unitCost;
-                document.getElementById('aiMaterialCost').value = siteInfo.materialCost;
-                document.getElementById('aiProgress').value = siteInfo.progress;
+                document.getElementById('aiBudget').value = siteInfo.budget; document.getElementById('aiProfit').value = siteInfo.profit;
+                document.getElementById('aiUnitCost').value = siteInfo.unitCost; document.getElementById('aiMaterialCost').value = siteInfo.materialCost; document.getElementById('aiProgress').value = siteInfo.progress;
             }
         }
     }
 
     function openAiModal() {
         const sel = document.getElementById('aiSiteSelect');
-        sel.innerHTML = globalData.sites
-            .filter(s => !s.company || s.company === "")
-            .map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-        
-        if (sel.options.length > 0) {
-            loadAiSiteData();
-        }
-
+        sel.innerHTML = globalData.sites.filter(s => !s.company).map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+        if (sel.options.length > 0) loadAiSiteData();
         document.getElementById('aiModal').style.display = 'flex';
     }
 
+    // 🚀 GAS不使用：ブラウザのJavaScript単体でロジック計算し、右腕アドバイスを表示（外部通信なしで最速）
     async function askRightArm() {
         const site = document.getElementById('aiSiteSelect').value;
-        const budget = document.getElementById('aiBudget').value;
-        const profit = document.getElementById('aiProfit').value || 0;
-        const unitCost = document.getElementById('aiUnitCost').value || 20000;
-        const materialCost = document.getElementById('aiMaterialCost').value || 0;
-        const progress = document.getElementById('aiProgress').value || 0;
+        const budget = Number(document.getElementById('aiBudget').value);
+        const profitPercent = Number(document.getElementById('aiProfit').value || 0);
+        const unitCost = Number(document.getElementById('aiUnitCost').value || 20000);
+        const materialCost = Number(document.getElementById('aiMaterialCost').value || 0);
+        const progress = Number(document.getElementById('aiProgress').value || 0);
 
         if (!budget || !unitCost) return alert('入力内容に不備があります。');
 
         let actualArtificial = 0;
-        globalData.attendance.forEach(r => {
-            if (r.site === site) actualArtificial += (r.headcount || 1);
-        });
+        globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += (r.headcount || 1); });
 
-        // 現場の設定データを保存（Supabaseへ直結更新）
-        sendGasRequest({
-            action: 'saveAiSiteData',
-            site: site,
-            budget: budget,
-            profit: profit,
-            unitCost: unitCost,
-            materialCost: materialCost,
-            progress: progress
+        // 設定値をSupabaseに直撃保存
+        executeDatabaseAction({
+            action: 'saveAiSiteData', site: site, budget: budget, profit: profitPercent, unitCost: unitCost, materialCost: materialCost, progress: progress
         });
 
         const btn = document.getElementById('aiSubmitBtn');
-        const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 分析中...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 計算中...';
         
-        const responseArea = document.getElementById('aiResponse');
-        responseArea.innerHTML = '<div style="text-align:center; color:#3182ce; padding-top:30px;"><i class="fas fa-cog fa-spin fa-2x"></i><br>安全なサーバー（GAS）経由で状況を分析しています...</div>';
+        // ローカルロジックによるガチ計算
+        const targetProfit = budget * (profitPercent / 100);
+        const availableBudget = budget - targetProfit - materialCost;
+        const totalAllowedArtificial = Math.floor(availableBudget / unitCost);
+        const remainingArtificial = totalAllowedArtificial - actualArtificial;
 
-        const promptText = `現場: ${site}\n請負金額: ${budget}円\n目標利益率: ${profit}%\n経費込み1人工単価: ${unitCost}円\n想定材料代: ${materialCost}円\n今日までに実際に使った累計人工: ${actualArtificial}人工\n現在の出来高進捗: ${progress}%\n\nこの条件で、請負金額から材料代を引いた予算に対し、あと何人工以内で収めなければならないかの残り予算人工を計算してください。また、現在の進捗度（％）に対して、既に使ってしまった実際の人工（${actualArtificial}人工）のペースが早いか遅いかを分析し、最終的に黒字で逃げ切れるか、あるいは赤字リスクがあるかのガチの評価と、現場で今すぐできる具体的なアドバイスをお願いします。`;
-
-        try {
-            // AIだけはセキュリティ上、これまで通りGASにお願いする
-            const res = await fetch(gasUrl, {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'askRightArm',
-                    message: promptText
-                })
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                responseArea.innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${data.reply}</div>`;
-            } else if (data.message.includes('上限')) {
-                responseArea.innerHTML = `
-                    <div style="background:#fffaf0; border:1px solid #dd6b20; padding:16px; border-radius:8px; text-align:center;">
-                        <div style="color:#dd6b20; font-weight:bold; font-size:14px; margin-bottom:8px;">🛑 本日の利用上限に達しました</div>
-                        <div style="font-size:12px; color:#4a5568; line-height:1.5;">${data.message}</div>
-                    </div>`;
+        let statusEvaluation = "";
+        let paceAdvice = "";
+        
+        if (progress > 0) {
+            const expectedTotalArtificial = actualArtificial / (progress / 100);
+            if (expectedTotalArtificial > totalAllowedArtificial) {
+                statusEvaluation = "🚨 赤字リスク警戒：このままのペースでは予算人工を超過し、目標利益が吹き飛ぶリスクがあります。";
+                paceAdvice = "現場の施工効率を上げるか、応援の手配を見直して1日の進捗スピードを上げてください。材料の無駄削減、または工程の再配置を急ぎましょう。";
             } else {
-                responseArea.innerHTML = `
-                    <div style="background:#fff5f5; border:1px solid #fc8181; padding:12px; border-radius:8px; text-align:center;">
-                        <div style="color:#c53030; font-weight:bold; margin-bottom:8px;">❌ エラー</div>
-                        <div style="font-size:12px; color:#4a5568; margin-bottom:12px; line-height:1.4;">${data.message}</div>
-                        <div style="font-size:12px; font-weight:bold; color:#2d3748;">💡 システム管理者にお問い合わせください。</div>
-                    </div>`;
+                statusEvaluation = "✨ 黒字逃げ切り圏内：現在の人工ペースは目標予算内に収まっています。";
+                paceAdvice = "このまま安全第一で手戻り（やり直し）のないよう、現在の施工品質をキープして進めていければガチで黒字を確保できます。";
             }
-        } catch (error) {
-            responseArea.innerHTML = '<div style="color:red; text-align:center; padding-top:30px;">通信エラーが発生しました。<br>時間をおいて再度実行してください。</div>';
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
+        } else {
+            statusEvaluation = "📊 初期分析：データ蓄積中。";
+            paceAdvice = "算出された予算内（あと何人工で収めるか）を目安に、日々の人工手配をコントロールしてください。";
         }
+
+        const replyHtml = `【右腕のガチ分析結果】\n---------------------------------\n■ 現場名: ${site}\n■ 目標の残り予算人工: あと 【 ${remainingArtificial} 人工 】 以内\n(※材料費と目標利益を確保した上での許容残数です)\n\n■ 現在の状況評価:\n${statusEvaluation}\n\n■ 親方への具体的なアドバイス:\n${paceAdvice}`;
+
+        document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${replyHtml}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic"></i> 右腕にアドバイスをもらう';
     }
 
-    function openManageMasterModal() {
-        renderManageMasterLists();
-        document.getElementById('manageMasterModal').style.display = 'flex';
-    }
+    function openManageMasterModal() { renderManageMasterLists(); document.getElementById('manageMasterModal').style.display = 'flex'; }
 
     function renderManageMasterLists() {
         const siteList = document.getElementById('manageSiteList'); siteList.innerHTML = '';
@@ -836,19 +727,10 @@
 
     async function deleteMasterItem(action, name, btn) {
         if(!confirm(`「${name}」を削除しますか？`)) return;
-        
-        const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        
-        let p = { action: action };
-        if(action === 'deleteSite') p.siteName = name; if(action === 'deleteWorker') p.workerName = name;
-        
-        await sendGasRequest(p); 
+        await executeDatabaseAction({ action: action, siteName: name, workerName: name }); 
         closeModal('manageMasterModal');
-        
         btn.disabled = false;
-        btn.innerHTML = originalText;
     }
 
     async function updateWorkerInfo(oldName, idx, btn) {
@@ -860,146 +742,103 @@
         const taxType = document.getElementById('editWTax_' + idx).value;
         if(!newName || !newPin || !newWage) return alert('必須項目を入力してください');
 
-        const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        await sendGasRequest({
+        await executeDatabaseAction({
             action: 'updateWorker', oldName: oldName, newName: newName, newPin: newPin, newWage: Number(newWage), closing: Number(closing), payDate: payDate, taxType: taxType
         });
         closeModal('manageMasterModal');
-        
         btn.disabled = false;
-        btn.innerHTML = originalText;
     }
 
     async function saveRecord() {
-        await sendGasRequest({
-            action: 'updateAttendance', 
-            row: document.getElementById('editRow').value, // これがSupabaseのidになります
-            date: document.getElementById('editDate').value, 
-            name: document.getElementById('editName').value,
-            site: document.getElementById('editSite').value, 
-            wage: Number(document.getElementById('editWage').value),
-            headcount: Number(document.getElementById('editHeadcount').value) || 1,
-            clientCompany: document.getElementById('editClientCompany').value.trim(),
-            others: document.getElementById('editOthers').value,
-            gasoline: Number(document.getElementById('editGasoline').value) || 0,
-            highway: Number(document.getElementById('editHighway').value) || 0,
-            parking: Number(document.getElementById('editParking').value) || 0,
-            misc: Number(document.getElementById('editMisc').value) || 0
+        await executeDatabaseAction({
+            action: 'updateAttendance', row: document.getElementById('editRow').value, date: document.getElementById('editDate').value, 
+            name: document.getElementById('editName').value, site: document.getElementById('editSite').value, wage: Number(document.getElementById('editWage').value),
+            headcount: Number(document.getElementById('editHeadcount').value) || 1, clientCompany: document.getElementById('editClientCompany').value.trim(), others: document.getElementById('editOthers').value,
+            gasoline: Number(document.getElementById('editGasoline').value) || 0, highway: Number(document.getElementById('editHighway').value) || 0, parking: Number(document.getElementById('editParking').value) || 0, misc: Number(document.getElementById('editMisc').value) || 0
         });
         closeModal('editModal');
     }
 
     async function deleteRecord() {
         if(!confirm('本当に削除しますか？')) return;
-        await sendGasRequest({ action: 'deleteAttendance', row: document.getElementById('editRow').value });
+        await executeDatabaseAction({ action: 'deleteAttendance', row: document.getElementById('editRow').value });
         closeModal('editModal');
     }
 
     async function addMaster(action, btn) {
         let p = { action: action };
         if (action === 'addSite') {
-            const v = document.getElementById('newSite').value.trim();
-            const c = document.getElementById('newClientCompany').value.trim();
+            const v = document.getElementById('newSite').value.trim(); const c = document.getElementById('newClientCompany').value.trim();
             if(!v) return; p.newSite = v; p.clientCompany = c;
         } else {
-            const w = document.getElementById('newWorker').value.trim();
-            const pin = document.getElementById('newPin').value.trim();
-            const wage = document.getElementById('newWage').value;
-            const closing = document.getElementById('newClosing').value;
-            const pay = document.getElementById('newPayDate').value.trim();
-            const tax = document.getElementById('newTaxType').value;
+            const w = document.getElementById('newWorker').value.trim(); const pin = document.getElementById('newPin').value.trim(); const wage = document.getElementById('newWage').value;
+            const closing = document.getElementById('newClosing').value; const pay = document.getElementById('newPayDate').value.trim(); const tax = document.getElementById('newTaxType').value;
             if(!w || !pin || !wage) return alert('入力項目が足りません');
             p.newWorker = w; p.newPin = pin; p.newWage = Number(wage); p.closing = Number(closing); p.payDate = pay; p.taxType = tax;
         }
 
-        const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 処理中...';
-
-        await sendGasRequest(p);
+        await executeDatabaseAction(p);
         document.getElementById('newSite').value = ''; document.getElementById('newClientCompany').value = '';
         document.getElementById('newWorker').value = ''; document.getElementById('newPin').value = ''; document.getElementById('newWage').value = '';
-        
         btn.disabled = false;
-        btn.innerHTML = originalText;
     }
 
     // ==========================================
-    // 🚀 GASとSupabaseへの自動振り分けルーター
+    // 🚀 Supabase 直結実行エンジン（全門直通）
     // ==========================================
-    async function sendGasRequest(payload) {
+    async function executeDatabaseAction(payload) {
         try {
-            let res, targetUrl, options;
+            let targetUrl, options = { headers: supabaseHeaders };
             
-            // 出面データ・マスター系の処理はすべて「Supabase」に直接投げる
-            if (['updateAttendance', 'deleteAttendance', 'addSite', 'addWorker', 'updateWorker', 'deleteWorker', 'deleteSite', 'saveAiSiteData'].includes(payload.action)) {
+            if (payload.action === 'updateAttendance') {
+                options.method = 'PATCH';
+                options.body = JSON.stringify({
+                    work_date: payload.date, site_name: payload.site, worker_name: payload.name, wage: payload.wage, 
+                    headcount: payload.headcount, client_company: payload.clientCompany || '', others: payload.others, 
+                    gasoline: payload.gasoline, highway: payload.highway, parking: payload.parking, misc: payload.misc
+                });
+                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
                 
-                options = { headers: supabaseHeaders };
+            } else if (payload.action === 'deleteAttendance') {
+                options.method = 'DELETE';
+                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
                 
-                if (payload.action === 'updateAttendance') {
-                    options.method = 'PATCH';
-                    options.body = JSON.stringify({
-                        work_date: payload.date, site_name: payload.site, worker_name: payload.name, wage: payload.wage, 
-                        headcount: payload.headcount, client_company: payload.clientCompany || '', others: payload.others, 
-                        gasoline: payload.gasoline, highway: payload.highway, parking: payload.parking, misc: payload.misc
-                    });
-                    targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
-                    
-                } else if (payload.action === 'deleteAttendance') {
-                    options.method = 'DELETE';
-                    targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
-                    
-                } else if (payload.action === 'addSite') {
-                    options.method = 'POST';
-                    options.body = JSON.stringify({ name: payload.newSite, company: payload.clientCompany || '' });
-                    targetUrl = `${SUPABASE_URL}/sites`;
-                    
-                } else if (payload.action === 'addWorker') {
-                    options.method = 'POST';
-                    options.body = JSON.stringify({ name: payload.newWorker, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
-                    targetUrl = `${SUPABASE_URL}/workers`;
-                    
-                } else if (payload.action === 'updateWorker') {
-                    options.method = 'PATCH';
-                    options.body = JSON.stringify({ name: payload.newName, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
-                    targetUrl = `${SUPABASE_URL}/workers?name=eq.${encodeURIComponent(payload.oldName)}`;
-                    
-                } else if (payload.action === 'deleteWorker') {
-                    options.method = 'DELETE';
-                    targetUrl = `${SUPABASE_URL}/workers?name=eq.${encodeURIComponent(payload.workerName)}`;
-                    
-                } else if (payload.action === 'deleteSite') {
-                    options.method = 'DELETE';
-                    targetUrl = `${SUPABASE_URL}/sites?name=eq.${encodeURIComponent(payload.siteName)}`;
-                    
-                } else if (payload.action === 'saveAiSiteData') {
-                    options.method = 'PATCH';
-                    options.body = JSON.stringify({ 
-                        budget: Number(payload.budget) || 0, 
-                        profit: Number(payload.profit) || 0, 
-                        unit_cost: Number(payload.unitCost) || 0, 
-                        material_cost: Number(payload.materialCost) || 0, 
-                        progress: Number(payload.progress) || 0 
-                    });
-                    targetUrl = `${SUPABASE_URL}/sites?name=eq.${encodeURIComponent(payload.site)}`;
-                }
-
-                const response = await fetch(targetUrl, options);
-                if (response.ok) {
-                    loadData();
-                } else {
-                    alert('データベースへの書き込みに失敗しました。');
-                }
-
-            } else {
-                // 上記以外の処理（もしあれば）は念のためGASに送るフォールバック
-                const response = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(payload) });
-                const jsonData = await response.json();
-                if (jsonData.success) loadData(); else alert(jsonData.message);
+            } else if (payload.action === 'addSite') {
+                options.method = 'POST';
+                options.body = JSON.stringify({ name: payload.newSite, company: payload.clientCompany || '' });
+                targetUrl = `${SUPABASE_URL}/sites`;
+                
+            } else if (payload.action === 'addWorker') {
+                options.method = 'POST';
+                options.body = JSON.stringify({ name: payload.newWorker, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
+                targetUrl = `${SUPABASE_URL}/workers`;
+                
+            } else if (payload.action === 'updateWorker') {
+                options.method = 'PATCH';
+                options.body = JSON.stringify({ name: payload.newName, pin: payload.newPin, wage: payload.newWage, closing: payload.closing, pay_date: payload.payDate, tax_type: payload.taxType });
+                targetUrl = `${SUPABASE_URL}/workers?name=eq.${encodeURIComponent(payload.oldName)}`;
+                
+            } else if (payload.action === 'deleteWorker') {
+                options.method = 'DELETE';
+                targetUrl = `${SUPABASE_URL}/workers?name=eq.${encodeURIComponent(payload.workerName)}`;
+                
+            } else if (payload.action === 'deleteSite') {
+                options.method = 'DELETE';
+                targetUrl = `${SUPABASE_URL}/sites?name=eq.${encodeURIComponent(payload.siteName)}`;
+                
+            } else if (payload.action === 'saveAiSiteData') {
+                options.method = 'PATCH';
+                options.body = JSON.stringify({ 
+                    budget: Number(payload.budget) || 0, profit: Number(payload.profit) || 0, 
+                    unit_cost: Number(payload.unitCost) || 0, material_cost: Number(payload.materialCost) || 0, progress: Number(payload.progress) || 0 
+                });
+                targetUrl = `${SUPABASE_URL}/sites?name=eq.${encodeURIComponent(payload.site)}`;
             }
+
+            const response = await fetch(targetUrl, options);
+            if (response.ok) { loadData(); } else { alert('通信に失敗しました。'); }
         } catch(e) { alert('通信エラーが発生しました'); }
     }
 
@@ -1014,8 +853,7 @@
 
         let startPeriod = null, endPeriod = null;
         if (fMonth !== 'ALL' && fClosing !== 'ALL') {
-            const closingNum = Number(fClosing);
-            let [targetYear, targetMonth] = fMonth.split('-').map(Number);
+            const closingNum = Number(fClosing); let [targetYear, targetMonth] = fMonth.split('-').map(Number);
             if (closingNum === 31) {
                 startPeriod = new Date(targetYear, targetMonth - 1, 1); endPeriod = new Date(targetYear, targetMonth - 1, 31);
             } else {
@@ -1038,15 +876,11 @@
             return !kw || r.site.toLowerCase().includes(kw) || (r.clientCompany && r.clientCompany.toLowerCase().includes(kw)) || r.name.toLowerCase().includes(kw);
         }).sort((a, b)=> a.date < b.date ? 1 : -1).forEach(r => {
             let others = r.others ? r.others.replace(/"/g, '""').replace(/\n/g, ' ') : '';
-            let hc = r.headcount || 1;
-            let baseWage = r.wage * hc;
-            let wInfo = globalData.workers.find(w => w.name === r.name);
+            let hc = r.headcount || 1; let baseWage = r.wage * hc; let wInfo = globalData.workers.find(w => w.name === r.name);
             let taxAmount = (wInfo && wInfo.taxType === '税別') ? Math.floor(baseWage * 0.1) : 0;
             let rowWageTotal = baseWage + taxAmount;
-            
             let gas = r.gasoline || 0; let high = r.highway || 0; let park = r.parking || 0; let misc = r.misc || 0;
-            let expTotal = gas + high + park + misc;
-            let finalTotal = rowWageTotal + expTotal;
+            let expTotal = gas + high + park + misc; let finalTotal = rowWageTotal + expTotal;
 
             totalHeadcount += hc; totalWageAmount += rowWageTotal; totalGasoline += gas; totalHighway += high;
             totalParking += park; totalMisc += misc; totalExpenses += expTotal; grandTotal += finalTotal;
