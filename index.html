@@ -453,20 +453,20 @@
                 name: w.name, pin: w.pin, wage: w.wage, closing: w.closing, payDate: w.pay_date, taxType: w.tax_type
             }));
             
+            // 💡 ここを完全にこの通りに差し替えてくれ！
             const attendance = rawAttendance.map(r => ({
                 row: r.id, 
                 date: r.work_date, 
                 site: r.site_name, 
                 name: r.worker_name, 
                 others: r.others || r.remarks || "",
-                // 💡 データベースから取得した「wage」をここで確実に引き継ぐ（これでPC版でも計算が走る）
-                wage: r.wage, 
-                headcount: r.headcount, 
+                wage: Number(r.wage) || 0, // 💡 ここで確実にDBの単価を引き継ぐ！
+                headcount: Number(r.headcount) || 1, 
                 clientCompany: r.client_company,
-                gasoline: r.gasoline, 
-                highway: r.highway, 
-                parking: r.parking, 
-                misc: r.misc
+                gasoline: Number(r.gasoline) || 0, 
+                highway: Number(r.highway) || 0, 
+                parking: Number(r.parking) || 0, 
+                misc: Number(r.misc) || 0
             }));
 
             const uniqueMonths = Array.from(new Set(attendance.map(r => r.date?.substring(0, 7)))).filter(Boolean).sort().reverse();
