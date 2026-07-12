@@ -581,14 +581,16 @@
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:#a0aec0;">該当データがありません。</td></tr>';
         } else {
             filtered.sort((a, b) => a.date < b.date ? 1 : -1).forEach((r, index) => {
+                // 💡 まず最初に「tr」を確実に定義して作成する
+                const tr = document.createElement('tr');
                 const btnId = 'editBtn_' + index;
+                
                 const expenses = (r.gasoline || 0) + (r.highway || 0) + (r.parking || 0) + (r.misc || 0);
                 const hc = r.headcount || 1;
 
                 const wInfo = globalData.workers.find(w => w.name === r.name);
                 
-                // 💡 【重要】親モバイルと同じ設計に統一
-                // DBに単価（r.wage）が入っていればそれを最優先、無ければ子方マスターの単価を使う
+                // 💡 DBに単価（r.wage）が入っていればそれを最優先、無ければ子方マスターの単価を使う
                 const currentWage = (r.wage !== undefined && r.wage !== null && r.wage !== 0) ? Number(r.wage) : (wInfo ? wInfo.wage : 15000);
                 
                 // 💡 確定した単価をもとに、人数を掛け算して日当合計を出す
