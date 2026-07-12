@@ -689,7 +689,7 @@
 
         try {
             // 💡 修正箇所：ヘッダーを「supabaseHeaders」に統一して確実に通信を通す
-            const res = await fetch(`${SUPABASE_URL}/functions/v1/ask-right-arm`, {
+            const res = await fetch('https://gifwnwwxviasnsjqyyzr.supabase.co/functions/v1/ask-right-arm', {
                 method: 'POST',
                 headers: supabaseHeaders,
                 body: JSON.stringify({ message: promptData })
