@@ -883,14 +883,16 @@
                     work_date: payload.date, site_name: payload.site, worker_name: payload.name, wage: payload.wage, 
                     headcount: payload.headcount, client_company: payload.clientCompany || '', others: payload.others, 
                     gasoline: payload.gasoline, highway: payload.highway, parking: payload.parking, misc: payload.misc,
-                    license_key: myLicense // 💡 編集保存時にもキーを確実に上書き
+                    license_key: myLicense // 💡 編集データにもしっかり所有者を刻印
                 });
-                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}`;
+                // 💡 URLの後ろにも確実に自分のライセンスキーの条件を合体させて、他人のIDを狙い撃ちした不正アクセスを完全ブロック！
+                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${payload.row}&license_key=eq.${encodeURIComponent(myLicense)}`;
                 
             } else if (payload.action === 'deleteAttendance') {
                 options.method = 'DELETE';
                 const deleteId = document.getElementById('editRow').value;
-                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${deleteId}`;
+                // 💡 削除時も同様に、自分のライセンスキーのデータしか消せないようにURLに鍵をかける！
+                targetUrl = `${SUPABASE_URL}/attendance?id=eq.${deleteId}&license_key=eq.${encodeURIComponent(myLicense)}`;
                 
             } else if (payload.action === 'addSite') {
                 options.method = 'POST';
