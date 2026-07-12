@@ -438,6 +438,8 @@
                 fetch(`${SUPABASE_URL}/attendance?order=work_date.desc`, { headers: supabaseHeaders })
             ]);
             
+            if (!sRes.ok || !wRes.ok || !aRes.ok) throw new Error("Supabaseからのデータ取得に失敗しました");
+            
             const rawSites = await sRes.json();
             const rawWorkers = await wRes.json();
             const rawAttendance = await aRes.json();
@@ -452,19 +454,30 @@
             }));
             
             const attendance = rawAttendance.map(r => ({
-                row: r.id, date: r.work_date, site: r.site_name, name: r.worker_name, others: r.others,
-                wage: r.wage, headcount: r.headcount, clientCompany: r.client_company,
-                gasoline: r.gasoline, highway: r.highway, parking: r.parking, misc: r.misc
+                row: r.id, 
+                date: r.work_date, 
+                site: r.site_name, 
+                name: r.worker_name, 
+                // 💡 データベース側のothers、または過去データにremarksが混ざっている場合の両方を安全にケア
+                others: r.others || r.remarks || "",
+                wage: r.wage, 
+                headcount: r.headcount, 
+                clientCompany: r.client_company,
+                gasoline: r.gasoline, 
+                highway: r.highway, 
+                parking: r.parking, 
+                misc: r.misc
             }));
 
-            const uniqueMonths = Array.from(new Set(attendance.map(r => r.date?.substring(0, 7)))).sort().reverse();
+            const uniqueMonths = Array.from(new Set(attendance.map(r => r.date?.substring(0, 7)))).filter(Boolean).sort().reverse();
 
             globalData = { attendance: attendance, workers: workers, sites: sites, months: uniqueMonths };
             setupFilters(selectedMonth);
             renderDashboard();
             
         } catch(e) { 
-            tbody.innerHTML = '<tr><td colspan="10" style="color:red; text-align:center;">通信エラーが発生しました</td></tr>'; 
+            console.error("データ同期エラー詳細:", e);
+            tbody.innerHTML = '<tr><td colspan="10" style="color:red; text-align:center; font-weight:bold;"><i class="fas fa-exclamation-triangle"></i> 通信エラーが発生しました（ブラウザのコンソールログを確認してください）</td></tr>'; 
         }
     }
 
