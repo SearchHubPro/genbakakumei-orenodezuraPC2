@@ -286,7 +286,7 @@
 </div>
 
 <script>
-    // ==========================================
+   // ==========================================
     // 🔌 Supabase 完全伝送設定（GASは100%排除）
     // ==========================================
     const SUPABASE_URL = "https://gifwnwwxviasnsjqyyzr.supabase.co/rest/v1";
@@ -310,7 +310,7 @@
         }
     });
 
-    // 🚀 GAS不使用：Supabaseのlicensesテーブルを直撃する認証処理
+    // 🚀 licensesテーブルの実際の列名（license_key, is_active）に修正済
     async function checkLicenseAndBoot() {
         document.getElementById('mainView').style.display = 'none';
         const lockView = document.getElementById('lockView');
@@ -322,13 +322,13 @@
         `;
 
         try {
-            const res = await fetch(`${SUPABASE_URL}/licenses?key=eq.${encodeURIComponent(myLicense)}`, { headers: supabaseHeaders });
+            const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(myLicense)}`, { headers: supabaseHeaders });
             const json = await res.json();
 
-            if (json && json.length > 0 && json[0].valid) {
+            if (json && json.length > 0 && json[0].is_active) {
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
-                document.getElementById('displayCompName').innerText = json[0].company_name + ' 様';
+                document.getElementById('displayCompName').innerText = (json[0].company_name || 'ゲスト') + ' 様';
                 
                 const today = new Date();
                 const defaultMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
@@ -354,7 +354,6 @@
         `;
     }
 
-    // 🚀 GAS不使用：Supabaseのdezura_recordsテーブルを叩いて決済要求を記録する形に代替
     async function redirectToStripe(btn) {
         const originalText = btn.innerHTML;
         btn.disabled = true;
@@ -368,7 +367,7 @@
             });
 
             if (res.ok) {
-                alert('決済リクエストをSupabaseに送信しました。確認後、管理画面が有効になります。');
+                alert('決済リクエストをSupabaseに送信しました。');
             } else {
                 alert('リクエスト送信エラーが発生しました。');
             }
@@ -626,7 +625,6 @@
         document.getElementById('aiModal').style.display = 'flex';
     }
 
-    // 🚀 GAS不使用：ブラウザのJavaScript単体でロジック計算し、右腕アドバイスを表示（外部通信なしで最速）
     async function askRightArm() {
         const site = document.getElementById('aiSiteSelect').value;
         const budget = Number(document.getElementById('aiBudget').value);
@@ -640,7 +638,6 @@
         let actualArtificial = 0;
         globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += (r.headcount || 1); });
 
-        // 設定値をSupabaseに直撃保存
         executeDatabaseAction({
             action: 'saveAiSiteData', site: site, budget: budget, profit: profitPercent, unitCost: unitCost, materialCost: materialCost, progress: progress
         });
@@ -649,7 +646,6 @@
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 計算中...';
         
-        // ローカルロジックによるガチ計算
         const targetProfit = budget * (profitPercent / 100);
         const availableBudget = budget - targetProfit - materialCost;
         const totalAllowedArtificial = Math.floor(availableBudget / unitCost);
@@ -785,9 +781,6 @@
         btn.disabled = false;
     }
 
-    // ==========================================
-    // 🚀 Supabase 直結実行エンジン（全門直通）
-    // ==========================================
     async function executeDatabaseAction(payload) {
         try {
             let targetUrl, options = { headers: supabaseHeaders };
