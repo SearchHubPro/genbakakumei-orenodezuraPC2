@@ -731,10 +731,21 @@
         `;
 
         try {
-            // 💡 修正箇所：余計なデータベース用ヘッダーを外し、セキュリティ（CORS）に引っかからない綺麗な鍵だけを作る
+            // 💡 修正点①：AIに入力した最新の予算データを、Supabaseの sites テーブルに自動保存（PATCH）して残す！
+            await executeDatabaseAction({
+                action: 'saveAiSiteData',
+                site: site,
+                budget: budget,
+                profit: profitPercent,
+                unitCost: unitCost,
+                materialCost: materialCost,
+                progress: progress
+            });
+
+            // 💡 修正点②：余計なデータベース用ヘッダーを外し、セキュリティ（CORS）に引っかからない綺麗な鍵だけを作る
             const aiHeaders = {
-                'apikey': supabaseHeaders['apikey'] || supabaseHeaders['apiKey'] || '',
-                'Authorization': supabaseHeaders['Authorization'] || supabaseHeaders['authorization'] || '',
+                'apikey': supabaseHeaders['apikey'] || '',
+                'Authorization': supabaseHeaders['Authorization'] || '',
                 'Content-Type': 'application/json'
             };
 
