@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>俺の出面 - 親方ダッシュボード</title>
     
-    <!-- 💡 ここにアイコン画像のリンクを2行追加 -->
     <link rel="icon" type="image/png" href="https://i.ibb.co/wrcQnWtw/Gemini-Generated-Image-3t9eev3t9eev3t9e-1.png">
     <link rel="apple-touch-icon" href="https://i.ibb.co/wrcQnWtw/Gemini-Generated-Image-3t9eev3t9eev3t9e-1.png">
 
@@ -101,6 +100,7 @@
         <h1>俺の出面 - 親方ダッシュボード <span id="displayCompName" style="font-size: 12px; background: #fffeb3; color:#b7791f; padding: 2px 8px; border-radius: 12px; margin-left: 10px;"></span></h1>
         
         <div style="display: flex; gap: 12px;">
+            <button class="btn" style="background:#ffffff; color:#333333; border: 1px solid #cbd5e0;" onclick="window.open('https://billing.stripe.com/p/login/cNi6oGaoe0AD0EI0SV4AU00', '_blank')"><i class="fas fa-credit-card"></i> 💳 サブスク解約・変更</button>
             <button class="btn btn-gray" onclick="resetLicense()"><i class="fas fa-sync-alt"></i> ⚙️ 設定リセット</button>
             <button class="btn btn-orange" onclick="openMasterModal()"><i class="fas fa-plus-circle"></i> マスター登録</button>
             <button class="btn btn-purple" onclick="openManageMasterModal()"><i class="fas fa-list"></i> マスター編集</button>
@@ -417,7 +417,7 @@
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
-                // ローカルにキー、PIN、そして【会社名】を確実に保存する
+                // ローカルにキー、PIN、精度高会社名を確実に保存する
                 localStorage.setItem(LICENSE_KEY, key);
                 localStorage.setItem(PIN_KEY, pin);
                 localStorage.setItem('oreno_company_name', compName); // 👈ここを追加
@@ -848,7 +848,7 @@
         closeModal('editModal');
     }
 
-    // 🛠️ 3. マスター登録（現場・子方）時の埋め込み対応版
+    // 🛠️ マスター登録（現場・子方）時の埋め込み対応版 ＆ 【子方10人制限ストッパー搭載】
     async function addMaster(action, btn) {
         let p = { action: action };
         if (action === 'addSite') {
@@ -859,6 +859,13 @@
             const closing = document.getElementById('newClosing').value; const pay = document.getElementById('newPayDate').value.trim(); const tax = document.getElementById('newTaxType').value;
             if(!w || !pin || !wage) return alert('入力項目が足りません');
             if(pin.length !== 4) return alert('PINコードは4桁で入力してください');
+
+            // 🛑 【最強のストッパー】現在の登録人数がすでに10人以上かチェックする
+            if (globalData && globalData.workers && globalData.workers.length >= 10) {
+                alert('🛑 これ以上登録できません！\n「基本プラン」の子方上限は10人までです。\n11人以上登録する場合はプランアップが必要です。');
+                return;
+            }
+
             p.newWorker = w; p.newPin = pin; p.newWage = Number(wage); p.closing = Number(closing); p.payDate = pay; p.taxType = tax;
         }
 
@@ -872,7 +879,7 @@
         btn.disabled = false;
     }
 
-    // 🛠️ 2. 出面保存・編集時のライセンスキー埋め込み対応版
+    // 🛠️ 出面保存・編集時のライセンスキー埋め込み対応版
     async function executeDatabaseAction(payload) {
         try {
             let targetUrl, options = { headers: supabaseHeaders };
@@ -890,7 +897,7 @@
                 
             } else if (payload.action === 'deleteAttendance') {
                 options.method = 'DELETE';
-                const deleteId = document.getElementById('editRow').value;
+                options.body = document.getElementById('editRow').value;
                 // 💡 削除時も同様に、自分のライセンスキーのデータしか消せないようにURLに鍵をかける！
                 targetUrl = `${SUPABASE_URL}/attendance?id=eq.${deleteId}&license_key=eq.${encodeURIComponent(myLicense)}`;
                 
@@ -1011,7 +1018,8 @@
         
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
-        link.setAttribute("href", URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
         link.setAttribute("download", `出面集計_締め条件${fClosing}.csv`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
