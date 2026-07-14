@@ -304,7 +304,7 @@
     const SUPABASE_KEY = "sb_publishable_Vhhe7TrF5XsP6vF_xOm_Kw_P2R0B5wi";
     
     // 💡 ローカルに保存されているライセンスキーを取得
-    const currentLicense = localStorage.getItem('oreno_boss_license') || "";
+    const currentLicense = localStorage.getItem('oreno_license_key') || "";
 
     // 💡 ヘッダーに x-license-key を追加してPC版も壁を突破する
     const supabaseHeaders = {
@@ -413,7 +413,8 @@
 
         try {
             // キーとPINの組み合わせをSupabaseで確認
-            const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, { headers: supabaseHeaders });
+            const tempHeaders = { ...supabaseHeaders, "x-license-key": key };
+const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, { headers: tempHeaders });
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
