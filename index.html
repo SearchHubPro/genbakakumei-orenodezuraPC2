@@ -875,8 +875,8 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
             if(!w || !pin || !wage) return alert('入力項目が足りません');
             if(pin.length !== 4) return alert('PINコードは4桁で入力してください');
 
-            // 🛑 【最強のストッパー】Supabaseに設定されている上限値（worker_limit, max_workers, limit のいずれか）を基準にする
-            const maxWorkers = myLicenseInfo ? (myLicenseInfo.worker_limit || myLicenseInfo.max_workers || myLicenseInfo.limit || 10) : 10;
+            // 🛑 【最強のストッパー】Supabaseの「max_subcontractors」を基準にする！
+            const maxWorkers = myLicenseInfo ? (myLicenseInfo.max_subcontractors || 10) : 10;
             if (globalData && globalData.workers && globalData.workers.length >= maxWorkers) {
                 alert(`🛑 これ以上登録できません！\n現在のプランの子方上限は ${maxWorkers} 人までです。\nさらに登録する場合はプランアップが必要です。`);
                 return;
