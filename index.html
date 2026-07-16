@@ -322,6 +322,7 @@
     let myLicense = localStorage.getItem(LICENSE_KEY);
     let myPin = localStorage.getItem(PIN_KEY);
     let globalData = { attendance: [], workers: [], sites: [], months: [] };
+    let myLicenseInfo = null; // 💡 データベースから取得したライセンス情報を入れる変数を追加
 
     document.addEventListener('DOMContentLoaded', function() {
         if (!myLicense || !myPin) { 
@@ -346,6 +347,7 @@
             const json = await res.json();
 
             if (json && json.length > 0 && json[0].is_active) {
+                myLicenseInfo = json[0]; // 💡 認証したライセンス情報を変数に保存！
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
                 
@@ -873,9 +875,10 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
             if(!w || !pin || !wage) return alert('入力項目が足りません');
             if(pin.length !== 4) return alert('PINコードは4桁で入力してください');
 
-            // 🛑 【最強のストッパー】現在の登録人数がすでに10人以上かチェックする
-            if (globalData && globalData.workers && globalData.workers.length >= 10) {
-                alert('🛑 これ以上登録できません！\n「基本プラン」の子方上限は10人までです。\n11人以上登録する場合はプランアップが必要です。');
+            // 🛑 【最強のストッパー】Supabaseに設定されている上限値（worker_limit, max_workers, limit のいずれか）を基準にする
+            const maxWorkers = myLicenseInfo ? (myLicenseInfo.worker_limit || myLicenseInfo.max_workers || myLicenseInfo.limit || 10) : 10;
+            if (globalData && globalData.workers && globalData.workers.length >= maxWorkers) {
+                alert(`🛑 これ以上登録できません！\n現在のプランの子方上限は ${maxWorkers} 人までです。\nさらに登録する場合はプランアップが必要です。`);
                 return;
             }
 
