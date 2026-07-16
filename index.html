@@ -794,8 +794,7 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
                 <div style="padding:12px; border-bottom:1px solid #fed7d7; margin-bottom:8px; background:#fff; border-radius:6px;">
                     <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
                         <input type="text" id="editWName_${idx}" value="${w.name}" style="flex:1.5; padding:6px;" class="setup-input" placeholder="名前">
-                        // 💡 一覧編集側のmaxlengthも4に変更
-<input type="text" id="editWPin_${idx}" value="${w.pin || ''}" style="flex:1; padding:6px;" class="setup-input" placeholder="PIN" maxlength="4">
+                        <input type="text" id="editWPin_${idx}" value="${w.pin || ''}" style="flex:1; padding:6px;" class="setup-input" placeholder="PIN" maxlength="4">
                         <input type="number" id="editWWage_${idx}" value="${w.wage}" style="flex:1.2; padding:6px;" class="setup-input" placeholder="日当">
                         <select id="editWTax_${idx}" style="flex:1.2; padding:6px; height:38px; font-weight:bold;">
                             <option value="税込" ${w.taxType !== '税別' ? 'selected' : ''}>税込</option>
