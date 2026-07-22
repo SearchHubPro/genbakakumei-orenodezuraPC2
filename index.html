@@ -1028,7 +1028,13 @@
                 return s;
             };
             let others = csvSafe(r.others);
-            let hc = r.headcount || 1; let baseWage = r.wage * hc; let wInfo = globalData.workers.find(w => w.name === r.name);
+            let hc = r.headcount || 1;
+            let wInfo = globalData.workers.find(w => w.name === r.name);
+            // 🐛 修正：画面表示(renderDashboard)と同じロジックに統一。
+            //    r.wage が未設定/0 のときは子方マスターの基本単価にフォールバックする。
+            //    ここが抜けていたため、単価未保存の行はCSVのF列(単価)・G列(日当合計)だけ0になっていた。
+            const currentWage = (r.wage !== undefined && r.wage !== null && r.wage !== 0) ? Number(r.wage) : (wInfo ? wInfo.wage : 15000);
+            let baseWage = currentWage * hc;
             let taxAmount = (wInfo && wInfo.taxType === '税別') ? Math.floor(baseWage * 0.1) : 0;
             let rowWageTotal = baseWage + taxAmount;
             let gas = r.gasoline || 0; let high = r.highway || 0; let park = r.parking || 0; let misc = r.misc || 0;
@@ -1037,7 +1043,7 @@
             totalHeadcount += hc; totalWageAmount += rowWageTotal; totalGasoline += gas; totalHighway += high;
             totalParking += park; totalMisc += misc; totalExpenses += expTotal; grandTotal += finalTotal;
 
-            csvContent += `"${csvSafe(r.date)}","${csvSafe(r.name)}","${csvSafe(r.site)}","${csvSafe(r.clientCompany || '')}","${hc}","${r.wage}","${rowWageTotal}","${gas}","${high}","${park}","${misc}","${expTotal}","${finalTotal}","${others}"\n`;
+            csvContent += `"${csvSafe(r.date)}","${csvSafe(r.name)}","${csvSafe(r.site)}","${csvSafe(r.clientCompany || '')}","${hc}","${currentWage}","${rowWageTotal}","${gas}","${high}","${park}","${misc}","${expTotal}","${finalTotal}","${others}"\n`;
         });
         
         csvContent += `\n`;
