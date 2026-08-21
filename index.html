@@ -392,38 +392,17 @@
             <p style="font-weight:bold; color:#4a5568; margin-bottom:20px;">${message}</p>
             <div style="background:white; border:1px solid #cbd5e0; padding:20px; border-radius:8px; margin-bottom:20px;">
                 <p style="font-size:14px; font-weight:bold; margin-top:0;">「俺の出面 基本プラン」</p>
-                <button class="btn btn-purple" style="width:100%; padding:12px; font-size:15px;" onclick="redirectToStripe(this)">
-                    <i class="fas fa-credit-card"></i> 決済のご案内をリクエストする
+                <p style="font-size:12px; color:#718096; margin-top:0;">お支払い状況の確認・再開はこちらから行えます。</p>
+                <button class="btn btn-purple" style="width:100%; padding:12px; font-size:15px;" onclick="window.open('https://billing.stripe.com/p/login/cNi6oGaoe0AD0EI0SV4AU00', '_blank')">
+                    <i class="fas fa-credit-card"></i> お支払い状況を確認する
                 </button>
             </div>
             <button class="btn btn-gray" style="margin: 0 auto;" onclick="resetLicense()">🔑 PINコードの再設定</button>
         `;
     }
 
-    async function redirectToStripe(btn) {
-        const originalText = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 処理中...';
-
-        try {
-            const res = await fetch(`${SUPABASE_URL}/dezura_records`, {
-                method: 'POST',
-                headers: supabaseHeaders,
-                body: JSON.stringify({ action: 'checkout_requested', license_key: myLicense, created_at: new Date().toISOString() })
-            });
-
-            if (res.ok) {
-                alert('決済リクエストをSupabaseに送信しました。');
-            } else {
-                alert('リクエスト送信エラーが発生しました。');
-            }
-        } catch (error) {
-            alert('通信エラーが発生しました。');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    }
+    // 🔧 削除：redirectToStripe() は dezura_records に1行書くだけで決済に進まず、
+    //          かつ RLS で拒否されるため必ず失敗していた。請求ポータルへの直リンクに置き換え済み。
 
     async function saveSettings() {
         const key = document.getElementById('licenseKeyInput').value.trim();
