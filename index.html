@@ -353,6 +353,17 @@
         }
     });
 
+    // 🔐 キーとPINの確認（Supabaseの verify_license 関数。PINが違えば空の配列が返る）
+    async function verifyLicense(key, pin) {
+        const res = await fetch(`${SUPABASE_URL}/rpc/verify_license`, {
+            method: 'POST',
+            headers: { ...supabaseHeaders, "x-license-key": key },
+            body: JSON.stringify({ p_license_key: key, p_pin: pin })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+    }
+
     async function checkLicenseAndBoot() {
         document.getElementById('mainView').style.display = 'none';
         const lockView = document.getElementById('lockView');
@@ -364,10 +375,10 @@
         `;
 
         try {
-            const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(myLicense)}&pin_code=eq.${encodeURIComponent(myPin)}`, { headers: supabaseHeaders });
-            const json = await res.json();
+            // 🔐 licenses テーブルは直接読めないので、PINが合ったときだけ結果を返す関数で確認する
+            const json = await verifyLicense(myLicense, myPin);
 
-            if (json && json.length > 0 && json[0].is_active) {
+            if (Array.isArray(json) && json.length > 0 && json[0].is_active) {
                 myLicenseInfo = json[0]; // 💡 認証したライセンス情報を変数に保存！
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
@@ -417,11 +428,9 @@
 
         try {
             // キーとPINの組み合わせをSupabaseで確認
-            const tempHeaders = { ...supabaseHeaders, "x-license-key": key };
-const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComponent(key)}&pin_code=eq.${encodeURIComponent(pin)}`, { headers: tempHeaders });
-            const json = await res.json();
+            const json = await verifyLicense(key, pin);
 
-            if (json && json.length > 0 && json[0].is_active) {
+            if (Array.isArray(json) && json.length > 0 && json[0].is_active) {
                 // ローカルにキー、PIN、精度高会社名を確実に保存する
                 localStorage.setItem(LICENSE_KEY, key);
                 localStorage.setItem(PIN_KEY, pin);
@@ -469,7 +478,8 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
             
             const workers = rawWorkers.map(w => ({
                 id: w.id, // 💡 名前ではなくIDで操作するために保持
-                name: w.name, pin: w.pin, wage: w.wage, closing: w.closing, payDate: w.pay_date, taxType: w.tax_type
+                name: w.name, pin: w.pin, wage: w.wage, closing: w.closing, payDate: w.pay_date, taxType: w.tax_type,
+                inviteToken: w.invite_token || ''
             }));
             
             // 💡 ここを完全にこの通りに差し替えてくれ！
@@ -680,11 +690,25 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
         });
     }
 
+    // 🛡️ マスターから消えた名前・現場でも、選択肢に一時的に足して空欄で上書きされるのを防ぐ
+    function setSelectKeepingValue(selectId, value) {
+        const sel = document.getElementById(selectId);
+        Array.from(sel.querySelectorAll('option[data-temp]')).forEach(o => o.remove());
+        if (value && !Array.from(sel.options).some(o => o.value === value)) {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = value + '（マスターにない）';
+            opt.setAttribute('data-temp', '1');
+            sel.appendChild(opt);
+        }
+        sel.value = value || '';
+    }
+
     function openEditModal(rowObj) {
         document.getElementById('editRow').value = rowObj.row;
         document.getElementById('editDate').value = rowObj.date;
-        document.getElementById('editName').value = rowObj.name;
-        document.getElementById('editSite').value = rowObj.site;
+        setSelectKeepingValue('editName', rowObj.name);
+        setSelectKeepingValue('editSite', rowObj.site);
         document.getElementById('editWage').value = resolveWage(rowObj); // 💡 0のまま保存して単価が消える事故を防ぐ
         document.getElementById('editHeadcount').value = rowObj.headcount || 1;
         document.getElementById('editClientCompany').value = rowObj.clientCompany || '';
@@ -741,7 +765,7 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 右腕AIが現場データを解析中...';
 
         let actualArtificial = 0;
-        globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += (r.headcount || 1); });
+        globalData.attendance.forEach(r => { if (r.site === site) actualArtificial += Number(r.headcount) || 0; }); // headcountは読込時に空→1へ補正済み。0（経費のみ）は0のまま数える
 
         const promptData = `
         現場名: ${site}
@@ -783,13 +807,13 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
             const json = await res.json();
 
             if (json.success) {
-                document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${json.reply}</div>`;
+                document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${esc(json.reply)}</div>`;
             } else {
-                document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">エラー: ${json.message}</div>`;
+                document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">エラー: ${esc(json.message)}</div>`;
             }
 
         } catch (error) {
-            document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">通信エラー: Supabase関数との接続に失敗しました。（${error.message}）</div>`;
+            document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">通信エラー: Supabase関数との接続に失敗しました。（${esc(error.message)}）</div>`;
         }
 
         btn.disabled = false;
@@ -834,12 +858,47 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
                         </select>
                         <input type="text" id="editWPay_${idx}" value="${esc(w.payDate)}" style="flex:1.5; padding:6px; margin-bottom:0;" placeholder="支払日">
                     </div>
+                    <div style="display:flex; gap:8px; align-items:center; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:6px 8px; margin-bottom:8px;">
+                        <span style="font-size:11px; color:#166534; font-weight:bold; white-space:nowrap;">🔑 招待コード</span>
+                        <span style="font-family:monospace; font-size:12px; color:#1a365d; flex:1; word-break:break-all;">${esc(w.inviteToken || '（SQL未実行のため未発行）')}</span>
+                        <button class="btn btn-green" style="padding:4px 10px; font-size:12px; width:auto;" onclick="copyInviteMessage(${idx})">コピー</button>
+                        <button class="btn btn-gray" style="padding:4px 10px; font-size:12px; width:auto;" onclick="reissueInviteCode(${idx})">再発行</button>
+                    </div>
                     <div style="display:flex; justify-content:flex-end; gap:8px;">
                         <button class="btn btn-purple" style="padding:4px 12px; font-size:12px; width:auto;" onclick="updateWorkerInfo(${idx}, this)">保存</button>
                         <button class="btn btn-red" style="padding:4px 12px; font-size:12px; width:auto;" onclick="deleteMasterItem('deleteWorker', ${idx}, this)">削除</button>
                     </div>
                 </div>`;
         });
+    }
+
+    // 🔑 招待コードを、子方にそのまま送れる文章にしてコピーする
+    async function copyInviteMessage(idx) {
+        const w = globalData.workers[idx];
+        if (!w || !w.inviteToken) return alert('招待コードがまだありません。SupabaseでSQLを実行してください。');
+        const msg = `【俺の出面】${w.name} さんの招待コード\n${w.inviteToken}\n\n子方アプリの「⚙️ 設定変更」で、このコードと自分の暗証番号(4桁)を入れて登録してください。\n※このコードは他の人に教えないでください。`;
+        try {
+            await navigator.clipboard.writeText(msg);
+            alert('招待コードをコピーしました。LINEなどに貼り付けて本人に送ってください。');
+        } catch (e) {
+            prompt('自動コピーできませんでした。下の文字をコピーしてください。', w.inviteToken);
+        }
+    }
+
+    // 🔄 招待コードの再発行（古いコードで登録したスマホは使えなくなる）
+    async function reissueInviteCode(idx) {
+        const w = globalData.workers[idx];
+        if (!w || !w.id) return alert('対象が見つかりません。「最新を取得」を押してからやり直してください。');
+        if (!confirm(`「${w.name}」さんの招待コードを再発行しますか？\n\n今のコードで登録しているスマホは使えなくなり、新しいコードで登録し直しが必要です。`)) return;
+        try {
+            const res = await fetch(`${SUPABASE_URL}/rpc/reissue_invite_token`, {
+                method: 'POST', headers: supabaseHeaders, body: JSON.stringify({ p_worker_id: w.id })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            await loadData();
+            renderManageMasterLists();
+            alert('再発行しました。「コピー」で新しいコードを本人に送ってください。');
+        } catch (e) { alert('再発行に失敗しました。'); }
     }
 
     // 💡 同名の他社データを巻き込まないよう、名前ではなくレコードIDで削除する
@@ -865,21 +924,29 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
         const taxType = document.getElementById('editWTax_' + idx).value;
         if(!newName || !newPin || !newWage) return alert('必須項目を入力してください');
 
-        // 💡 名前を変えたときは過去の出面データの名前も一緒に書き換える（集計から迷子になるのを防ぐ）
+        // 💡 名前を変えたときは過去の出面データの名前も一緒に書き換えるか先に確認する（実行は子方情報の保存が成功してから）
+        let renameHistory = false;
         if (newName !== target.name) {
-            if (confirm(`名前を「${target.name}」→「${newName}」に変更します。\n過去の出面データの名前もまとめて書き換えますか？\n\n※キャンセルを選ぶと、過去データは古い名前のまま残り集計から外れます。`)) {
-                try {
-                    await fetch(`${SUPABASE_URL}/attendance?worker_name=eq.${encodeURIComponent(target.name)}&license_key=eq.${encodeURIComponent(myLicense)}`, {
-                        method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify({ worker_name: newName })
-                    });
-                } catch (e) { alert('過去データの名前変更に失敗しました。'); }
+            if (globalData.workers.some(w => w.id !== target.id && w.name === newName)) {
+                return alert('同じ名前の子方がすでにいます。別の名前にしてください。');
             }
+            renameHistory = confirm(`名前を「${target.name}」→「${newName}」に変更します。\n過去の出面データの名前もまとめて書き換えますか？\n\n※キャンセルを選ぶと、過去データは古い名前のまま残り集計から外れます。`);
         }
 
         btn.disabled = true;
-        await executeDatabaseAction({
+        const ok = await executeDatabaseAction({
             action: 'updateWorker', id: target.id, newName: newName, newPin: newPin, newWage: Number(newWage), closing: Number(closing), payDate: payDate, taxType: taxType
-        });
+        }, { reload: !renameHistory });
+
+        if (ok && renameHistory) {
+            try {
+                const r2 = await fetch(`${SUPABASE_URL}/attendance?worker_name=eq.${encodeURIComponent(target.name)}&license_key=eq.${encodeURIComponent(myLicense)}`, {
+                    method: 'PATCH', headers: supabaseHeaders, body: JSON.stringify({ worker_name: newName })
+                });
+                if (!r2.ok) throw new Error(await r2.text());
+            } catch (e) { alert('子方情報は更新しましたが、過去データの名前変更に失敗しました。'); }
+            loadData();
+        }
         closeModal('manageMasterModal');
         btn.disabled = false;
     }
@@ -933,7 +1000,9 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
     }
 
     // 🛠️ 出面保存・編集時のライセンスキー埋め込み対応版
-    async function executeDatabaseAction(payload) {
+    // 成功したら true を返す（opts.reload=false なら再読込しない）
+    async function executeDatabaseAction(payload, opts) {
+        const reload = !(opts && opts.reload === false);
         try {
             let targetUrl, options = { headers: supabaseHeaders };
             
@@ -997,10 +1066,24 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
                 targetUrl = `${SUPABASE_URL}/sites?id=eq.${encodeURIComponent(payload.siteId)}`; // 🔧 同名の他社現場を巻き込まないようIDで指定
             }
 
-            if (!targetUrl) { alert('不明な操作です。'); return; }
+            if (!targetUrl) { alert('不明な操作です。'); return false; }
             const response = await fetch(targetUrl, options);
-            if (response.ok) { loadData(); } else { alert('通信に失敗しました。'); }
-        } catch(e) { alert('通信エラーが発生しました'); }
+            if (response.ok) { if (reload) loadData(); return true; }
+            const errText = await response.text();
+            console.error('Supabaseエラー詳細:', errText);
+            let msg = '';
+            try { msg = JSON.parse(errText).message || ''; } catch (e) {}
+            alert('通信に失敗しました。' + (msg ? '\n' + msg : ''));
+            return false;
+        } catch(e) { alert('通信エラーが発生しました'); return false; }
+    }
+
+    // 📄 CSVの文字項目：" を二重にし、改行を空白に、Excelで数式として実行されないよう先頭の = + - @ を無害化する
+    function csvText(v) {
+        let t = (v === null || v === undefined) ? '' : String(v);
+        t = t.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+        if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+        return t;
     }
 
     function downloadCSV() {
@@ -1017,7 +1100,7 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
 
         // 🔧 修正：画面表示と完全に同じ絞り込み関数を使う（件数・金額のズレを解消）
         getFilteredRecords().filter(r => !!r.row).sort((a, b)=> a.date < b.date ? 1 : -1).forEach(r => {
-            let others = r.others ? r.others.replace(/"/g, '""').replace(/\n/g, ' ') : '';
+            let others = csvText(r.others);
             let hc = (r.headcount === null || r.headcount === undefined) ? 1 : Number(r.headcount);
             let currentWage = resolveWage(r); // 🔧 修正：画面と同じ単価ロジックを使う
             let baseWage = currentWage * hc; let wInfo = globalData.workers.find(w => w.name === r.name);
@@ -1029,7 +1112,7 @@ const res = await fetch(`${SUPABASE_URL}/licenses?license_key=eq.${encodeURIComp
             totalHeadcount += hc; totalWageAmount += rowWageTotal; totalGasoline += gas; totalHighway += high;
             totalParking += park; totalMisc += misc; totalExpenses += expTotal; grandTotal += finalTotal;
 
-            csvContent += `"${r.date}","${r.name}","${r.site}","${r.clientCompany || ''}","${hc}","${currentWage}","${rowWageTotal}","${gas}","${high}","${park}","${misc}","${expTotal}","${finalTotal}","${others}"\n`;
+            csvContent += `"${csvText(r.date)}","${csvText(r.name)}","${csvText(r.site)}","${csvText(r.clientCompany)}","${hc}","${currentWage}","${rowWageTotal}","${gas}","${high}","${park}","${misc}","${expTotal}","${finalTotal}","${others}"\n`;
         });
         
         csvContent += `\n`;
