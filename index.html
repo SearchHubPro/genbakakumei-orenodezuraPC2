@@ -269,6 +269,7 @@
     <div class="modal-content" style="max-width: 700px;">
         <h3 style="display: flex; justify-content: space-between; align-items: center;">
             <span><i class="fas fa-robot"></i> AIアシスタント「俺の右腕」</span>
+            <span style="font-size: 12px; font-weight: bold; background: #fffaf0; color: #dd6b20; border: 1px solid #feebc8; padding: 2px 8px; border-radius: 6px;">1日5回まで</span>
         </h3>
         
         <div style="margin-bottom:12px;">
@@ -801,13 +802,14 @@
             const res = await fetch('https://gifwnwwxviasnsjqyyzr.supabase.co/functions/v1/ask-right-arm', {
                 method: 'POST',
                 headers: aiHeaders,
-                body: JSON.stringify({ message: promptData })
+                // 💡 会社ごとの回数制限のため、ライセンスキーとPINも送る
+                body: JSON.stringify({ message: promptData, license_key: myLicense, pin: myPin })
             });
 
             const json = await res.json();
 
             if (json.success) {
-                document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${esc(json.reply)}</div>`;
+                document.getElementById('aiResponse').innerHTML = `<div style="background:#ebf8ff; border-left:4px solid #3182ce; padding:12px; border-radius:4px; font-size:13px; line-height:1.6; white-space:pre-wrap; font-weight:bold; color:#1a365d;">${esc(json.reply)}</div>` + (typeof json.remaining === 'number' ? `<div style="font-size:11px; color:#4a5568; margin-top:6px; text-align:right;">本日あと ${json.remaining} 回（1日${json.daily_limit}回まで）</div>` : '');
             } else {
                 document.getElementById('aiResponse').innerHTML = `<div style="color:red; font-weight:bold;">エラー: ${esc(json.message)}</div>`;
             }
