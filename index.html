@@ -73,6 +73,41 @@
             .modal-actions, #aiSubmitBtn, input, select, label { display: none !important; }
             #aiResponse { border: none !important; padding: 0 !important; margin-top: 10px; }
         }
+
+        /* 📅 子方ごとの出勤カレンダー（子方を1人選んだときだけ表示） */
+        #workerCal:empty { display: none; }
+        .wcal { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .wcal-wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+        .wcal-main { flex: 1 1 320px; max-width: 520px; min-width: 0; }
+        .wcal-side { flex: 1 1 260px; min-width: 0; }
+        .wcal-title { font-weight: bold; font-size: 15px; color: #1a365d; margin-bottom: 8px; }
+        .wcal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+        .wcal-wd { text-align: center; font-size: 11px; font-weight: bold; color: #666; padding: 2px 0; }
+        .wcal-wd.sun, .wcal-day.sun .wcal-num { color: #d32f2f; }
+        .wcal-wd.sat, .wcal-day.sat .wcal-num { color: #1565c0; }
+        .wcal-day { box-sizing: border-box; aspect-ratio: 1 / 1.05; min-height: 46px; max-width: 100%; width: 100%; margin: 0; border: 1px solid #e5e7eb; border-radius: 6px; background: #fafafa;
+            padding: 3px 0 0; font: inherit; font-size: 12px; color: #333; display: flex; flex-direction: column; align-items: center; gap: 1px; box-shadow: none; }
+        .wcal-day.empty { border: 0; background: transparent; }
+        .wcal-day.in-period { border: 2px solid #f59e0b; }
+        .wcal-day.has { cursor: pointer; }
+        .wcal-day.has:focus-visible { outline: 3px solid #3182ce; outline-offset: -1px; }
+        .wcal-day.selected { outline: 3px solid #d32f2f; outline-offset: -1px; }
+        .wcal-num { font-weight: bold; line-height: 1.2; }
+        .wcal-mark { display: block; flex: none; box-sizing: border-box; width: 22px; height: 22px; min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; border-radius: 50%; font-size: 10px; line-height: 22px; font-weight: bold; text-align: center; }
+        .wcal-mark.full { background: #1a73e8; color: #fff; }
+        .wcal-mark.half { background: linear-gradient(90deg, #1a73e8 50%, #d6e4fb 50%); color: #fff; text-shadow: 0 0 2px #1a73e8; }
+        .wcal-mark.zero { background: #fff; color: #059669; border: 1px solid #059669; line-height: 20px; }
+        .wcal-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: #555; margin-top: 8px; align-items: center; }
+        .wcal-legend span { display: inline-flex; align-items: center; gap: 4px; }
+        .wcal-legend .wcal-mark { width: 16px; height: 16px; min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px; line-height: 16px; font-size: 9px; }
+        .wcal-legend .box { width: 14px; height: 14px; border: 2px solid #f59e0b; border-radius: 3px; display: inline-block; }
+        .wcal-note { font-size: 12px; color: #92400e; background: #fff7ed; border-radius: 6px; padding: 6px 8px; margin-top: 8px; }
+        .wcal-detail { font-size: 13px; background: #f5f9ff; border: 1px solid #cfe0fb; border-radius: 8px; padding: 10px 12px; line-height: 1.6; }
+        .wcal-detail .hint { color: #888; font-size: 12px; }
+        .wcal-rec { padding: 6px 0; border-top: 1px dashed #cfe0fb; display: flex; gap: 8px; justify-content: space-between; align-items: center; }
+        .wcal-rec:first-of-type { border-top: 0; }
+        .wcal-rec .info { min-width: 0; overflow-wrap: anywhere; }
+        .wcal-edit { flex: none; padding: 6px 12px; font-size: 12px; font-weight: bold; color: #fff; background: #718096; border: 0; border-radius: 6px; cursor: pointer; width: auto; margin: 0; }
     </style>
 </head>
 <body>
@@ -152,6 +187,8 @@
                 <div id="workerSummary" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
             </div>
         </div>
+
+        <div id="workerCal"></div>
 
         <div class="table-container">
             <table id="dataTable">
@@ -689,7 +726,116 @@
             const wt = workerTotals[name]; const expText = wt.expense > 0 ? ` + 経費¥${wt.expense.toLocaleString()}` : '';
             sumDiv.innerHTML += `<span class="badge">${esc(name)} : ${wt.days}人 (日当¥${wt.wage.toLocaleString()}${expText} = ¥${wt.total.toLocaleString()})</span>`;
         });
+        renderWorkerCalendar();
     }
+
+    // 📅 子方を1人選んだときの出勤カレンダー（選んだ月の1日〜月末。締め日が月末以外なら給料の対象期間を枠で囲む）
+    let wcalByDay = {};
+    function renderWorkerCalendar() {
+        const box = document.getElementById('workerCal');
+        if (!box) return;
+        const fWorker = document.getElementById('filterWorker').value;
+        const fMonth = document.getElementById('filterMonth').value;
+        if (fWorker === 'ALL' || fMonth === 'ALL' || !fMonth) { box.innerHTML = ''; wcalByDay = {}; return; }
+
+        const [year, month] = fMonth.split('-').map(Number);
+        const prefix = fMonth;
+        const wInfo = globalData.workers.find(w => w.name === fWorker);
+        const closing = wInfo ? (Number(wInfo.closing) || 31) : 31;
+        const pad = n => String(n).padStart(2, '0');
+        const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        let startStr = null, endStr = null;
+        if (closing !== 31) {
+            startStr = fmt(new Date(year, month - 2, closing + 1));
+            endStr = fmt(new Date(year, month - 1, closing));
+        }
+        const hcOf = r => (r.headcount === null || r.headcount === undefined || r.headcount === '') ? 1 : Number(r.headcount);
+        const mine = globalData.attendance.filter(r => r.name === fWorker && r.date);
+
+        wcalByDay = {};
+        mine.forEach(r => { if (r.date.startsWith(prefix)) (wcalByDay[r.date] = wcalByDay[r.date] || []).push(r); });
+
+        const first = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0).getDate();
+        const wds = ['日', '月', '火', '水', '木', '金', '土'];
+        let cells = wds.map((w, i) => `<div class="wcal-wd ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('');
+        for (let i = 0; i < first.getDay(); i++) cells += '<div class="wcal-day empty"></div>';
+        let workDays = 0;
+        for (let day = 1; day <= lastDay; day++) {
+            const ds = `${prefix}-${pad(day)}`;
+            const wd = new Date(year, month - 1, day).getDay();
+            const recs = wcalByDay[ds] || [];
+            const total = recs.reduce((s, r) => s + hcOf(r), 0);
+            const inPeriod = closing !== 31 && ds >= startStr && ds <= endStr;
+            let mark = '';
+            if (recs.length) {
+                if (total >= 1) { mark = `<span class="wcal-mark full">${total === 1 ? '' : total}</span>`; workDays++; }
+                else if (total > 0) { mark = '<span class="wcal-mark half">½</span>'; workDays++; }
+                else mark = '<span class="wcal-mark zero">¥</span>';
+            }
+            const cls = ['wcal-day', wd === 0 ? 'sun' : wd === 6 ? 'sat' : '', inPeriod ? 'in-period' : '', recs.length ? 'has' : ''].join(' ');
+            cells += recs.length
+                ? `<div class="${cls}" role="button" tabindex="0" data-date="${ds}" aria-label="${month}月${day}日の出面を見る"><span class="wcal-num">${day}</span>${mark}</div>`
+                : `<div class="${cls}"><span class="wcal-num">${day}</span></div>`;
+        }
+
+        let note = '';
+        if (closing !== 31) {
+            const prevDays = mine.filter(r => r.date >= startStr && r.date < `${prefix}-01`).reduce((s, r) => s + hcOf(r), 0);
+            const [, sm, sd] = startStr.split('-').map(Number);
+            const prevEnd = new Date(year, month - 1, 0);
+            note = `<div class="wcal-note">前月 ${sm}/${sd}〜${prevEnd.getMonth() + 1}/${prevEnd.getDate()} の分：<b>${prevDays}</b> 人工（${closing}日締めの給料に入ります）</div>`;
+        }
+
+        box.innerHTML = `
+            <div class="wcal">
+                <div class="wcal-wrap">
+                    <div class="wcal-main">
+                        <div class="wcal-title">📅 ${esc(fWorker)} さんの${month}月（${workDays}日出勤）</div>
+                        <div class="wcal-grid">${cells}</div>
+                        <div class="wcal-legend">
+                            <span><span class="wcal-mark full"></span>1日</span>
+                            <span><span class="wcal-mark half">½</span>半日</span>
+                            <span><span class="wcal-mark zero">¥</span>経費のみ</span>
+                            ${closing !== 31 ? `<span><span class="box"></span>${closing}日締めの対象</span>` : ''}
+                        </div>
+                        ${note}
+                    </div>
+                    <div class="wcal-side">
+                        <div class="wcal-detail" id="wcalDetail"><span class="hint">印のついた日を押すと、その日の現場・人数・経費・備考が出ます。ここから編集もできます。</span></div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // 日付を押したら、その日の中身と「編集」ボタンを出す
+    document.addEventListener('click', (e) => {
+        const day = e.target.closest('#workerCal .wcal-day.has');
+        if (day) {
+            const ds = day.dataset.date;
+            const recs = wcalByDay[ds] || [];
+            document.querySelectorAll('#workerCal .wcal-day.selected').forEach(el => el.classList.remove('selected'));
+            day.classList.add('selected');
+            const [, m, d] = ds.split('-').map(Number);
+            const rows = recs.map(r => {
+                const hc = (r.headcount === null || r.headcount === undefined || r.headcount === '') ? 1 : Number(r.headcount);
+                const parts = [['ガソリン', r.gasoline], ['高速', r.highway], ['駐車場', r.parking], ['雑費', r.misc]]
+                    .filter(([, v]) => Number(v) > 0).map(([k, v]) => `${k} ¥${Number(v).toLocaleString()}`);
+                return `<div class="wcal-rec"><div class="info">🏢 <b>${esc(r.site)}</b>　${hc === 0 ? '経費のみ' : hc + '人工'}`
+                    + (r.clientCompany ? `<br><span style="color:#c2410c; font-size:12px;">応援先: ${esc(r.clientCompany)}</span>` : '')
+                    + (parts.length ? `<br><span style="color:#059669;">💰 ${parts.join(' / ')}</span>` : '')
+                    + (r.others ? `<br><span style="color:#555;">📝 ${esc(r.others)}</span>` : '')
+                    + `</div><button type="button" class="wcal-edit" data-row="${esc(r.row)}">編集</button></div>`;
+            });
+            document.getElementById('wcalDetail').innerHTML = `<div style="font-weight:bold;">${m}月${d}日</div>${rows.join('')}`;
+            return;
+        }
+        const edit = e.target.closest('#workerCal .wcal-edit');
+        if (edit) {
+            const rec = globalData.attendance.find(r => String(r.row) === edit.dataset.row);
+            if (rec) openEditModal(rec);
+        }
+    });
 
     // 🛡️ マスターから消えた名前・現場でも、選択肢に一時的に足して空欄で上書きされるのを防ぐ
     function setSelectKeepingValue(selectId, value) {
@@ -1127,6 +1273,13 @@
         link.setAttribute("download", `出面集計_締め条件${fClosing}.csv`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
+
+    // ⌨️ カレンダーの日付はキーボード（Enter/スペース）でも選べるようにする
+    document.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('wcal-day') && e.target.classList.contains('has')) {
+            e.preventDefault(); e.target.click();
+        }
+    });
 </script>
 </body>
 </html>
