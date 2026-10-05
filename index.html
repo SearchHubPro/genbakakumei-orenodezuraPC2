@@ -345,6 +345,8 @@
     
     // 💡 ローカルに保存されているライセンスキーを取得
     const currentLicense = localStorage.getItem('oreno_license_key') || "";
+    // 🔐 PINも一緒に送る（データベースが「キー＋PIN＋有効な会社」を確かめる）
+    const currentPin = localStorage.getItem('oreno_pin_code') || "";
 
     // 💡 ヘッダーに x-license-key を追加してPC版も壁を突破する
     const supabaseHeaders = {
@@ -352,7 +354,8 @@
         "Authorization": `Bearer ${SUPABASE_KEY}`,
         "Content-Type": "application/json",
         "Prefer": "return=representation",
-        "x-license-key": currentLicense
+        "x-license-key": currentLicense,
+        "x-license-pin": currentPin
     };
 
     const LICENSE_KEY = 'oreno_license_key';
@@ -395,7 +398,7 @@
     async function verifyLicense(key, pin) {
         const res = await fetch(`${SUPABASE_URL}/rpc/verify_license`, {
             method: 'POST',
-            headers: { ...supabaseHeaders, "x-license-key": key },
+            headers: { ...supabaseHeaders, "x-license-key": key, "x-license-pin": pin },
             body: JSON.stringify({ p_license_key: key, p_pin: pin })
         });
         if (!res.ok) throw new Error(await res.text());
