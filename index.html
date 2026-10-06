@@ -1297,6 +1297,8 @@
 
 
 
+
+
 <!-- ===================== 請求書（invoice）ここから ===================== -->
 <style>
   #inv { position: fixed; inset: 0; z-index: 2000; background: #f0f2f5; overflow-y: auto; -webkit-overflow-scrolling: touch; display: none; color: #1a202c; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
@@ -1364,8 +1366,8 @@
   }
   /* PDF にする紙（画面の外で描く） */
   /* PDF にする紙（画面の外で描く）。.pp が紙1枚。色は --c（濃い）--l（薄い）--t（題の色） */
-  #iv-paper { position: fixed; left: -10000px; top: 0; }
-  .pp { width: 794px; min-height: 1123px; background: #fff; color: #111; font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans CJK JP", sans-serif; font-size: 13px; padding: 46px 50px; line-height: 1.5; position: relative; text-align: left; }
+  #iv-paper { position: fixed; left: -10000px; top: 0; -webkit-text-size-adjust: none; text-size-adjust: none; }   /* iPhone が横に広い紙の文字を勝手に大きくしないように */
+  .pp { -webkit-text-size-adjust: none; text-size-adjust: none; width: 794px; min-height: 1123px; background: #fff; color: #111; font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans CJK JP", sans-serif; font-size: 13px; padding: 46px 50px; line-height: 1.5; position: relative; text-align: left; }
   .pp * { box-sizing: border-box; }
   .pp table { width: 100%; border-collapse: collapse !important; margin-top: 16px; table-layout: fixed; min-width: 0 !important; white-space: normal !important; }
   .pp th, .pp td { padding: 4px 7px; font-size: 13px; position: static !important; box-shadow: none !important; }
@@ -1489,6 +1491,15 @@ var INV = (function () {
   function ymd(d) { return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
   function jpDate(s) { var d = new Date(s + 'T00:00:00'); return '令和' + (d.getFullYear() - 2018 === 1 ? '元' : d.getFullYear() - 2018) + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日'; }
   function money(v) { var n = Number(String(v).replace(/[,，¥円%％\s]/g, '')); return isFinite(n) ? n : 0; }
+  function half(v) { return String(v || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }); }
+  function fmtZip(v) { var d = half(v).replace(/[^0-9]/g, ''); return d.length === 7 ? d.slice(0, 3) + '-' + d.slice(3) : String(v || ''); }
+  function fmtTel(v) {                         // ハイフン無しの電話番号を区切って見せる（保存してある値は変えない）
+    var raw = half(v); if (/[-‐－ー]/.test(raw)) return raw;
+    var d = raw.replace(/[^0-9]/g, '');
+    if (d.length === 11) return d.slice(0, 3) + '-' + d.slice(3, 7) + '-' + d.slice(7);           // 携帯・050 など
+    if (d.length === 10) return /^0[36]/.test(d) ? d.slice(0, 2) + '-' + d.slice(2, 6) + '-' + d.slice(6) : d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
+    return raw;
+  }
   function touch() { return ('ontouchstart' in window) || navigator.maxTouchPoints > 0; }
 
   async function api(path, opt) {
@@ -1948,7 +1959,7 @@ var INV = (function () {
     if ((v.lines || []).some(function (l) { return l.tax === '消費税'; })) notes.push('「消費税（出来高分まとめて）」は、これまでの出来高の消費税をまとめたものです。');
     var to = e(r.name) + '　' + e(r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : r.honorific));
     var head = '<div class="p-head"><div>発行日：' + e(jpDate(v.issue_date)) + '</div><div class="p-title">請求書</div></div>'
-      + '<div class="p-to">' + (r.postal ? '〒' + e(r.postal) + '<br>' : '') + (r.address ? e(r.address) + '<br>' : '') + '<span class="nm">' + to + '</span></div>';
+      + '<div class="p-to">' + (r.postal ? '〒' + e(fmtZip(r.postal)) + '<br>' : '') + (r.address ? e(r.address) + '<br>' : '') + '<span class="nm">' + to + '</span></div>';
     var table = '<table><colgroup><col style="width:40px"><col><col style="width:70px"><col style="width:58px"><col style="width:96px"><col style="width:120px"></colgroup><thead><tr><th>No</th><th>品　目</th><th>数　量</th><th>単　位</th><th>単　価</th><th>金　額</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
     var mid, tot, note;
     if (st === 'color') {
@@ -1967,7 +1978,7 @@ var INV = (function () {
     var sp = SEAL_PX[lk.sealSize];
     var brand = '<div class="p-brand">' + (lk.logo ? '<img class="logo" src="' + lk.logo + '" alt="">' : '<span class="nm">' + e(f.company_name) + '</span>')
       + (lk.seal ? '<img class="seal" src="' + lk.seal + '" alt="" style="width:' + sp + 'px;height:' + sp + 'px;object-fit:contain;right:' + Math.round(-sp * 0.55) + 'px;top:50%;margin-top:' + Math.round(-sp / 2) + 'px">' : '') + '</div>';   // 社印はロゴ（会社名）の右端に重ねる
-    var addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + f.postal + ' ' : '') + (f.address || '')).trim(), ((f.tel ? 'TEL：' + f.tel : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean).map(e).join('<br>');
+    var addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(), ((f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean).map(e).join('<br>');
     return '<div class="pp d-' + st + '" style="--c:' + col.c + ';--l:' + col.l + ';--t:' + col.t + '">' + head + mid
       + '<div class="p-sub">※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　対象期間：' + e(v.period_from) + ' 〜 ' + e(v.period_to) + '</div>'
       + table + tot + (notes.length ? '<div class="p-notes">' + notes.map(e).join('<br>') + '</div>' : '') + note
@@ -2014,7 +2025,7 @@ var INV = (function () {
     function merge(range, val, opt) { ws.mergeCells(range); var c = put(range.split(':')[0], val, opt); return c; }
     function border(range) { var a = range.split(':'), s = ws.getCell(a[0]), en = ws.getCell(a[1]); for (var rr = s.row; rr <= en.row; rr++) for (var cc = s.col; cc <= en.col; cc++) ws.getCell(rr, cc).border = box; }
     put('B1', '発行日：'); merge('D1:H1', jpDate(v.issue_date)); merge('M1:R2', '請　求　書', { font: { size: 20, bold: true, color: { argb: argb(lk.style === 'standard' ? '#111111' : (strong ? col.t : col.c)) } }, align: { horizontal: 'center', vertical: 'middle' } });
-    put('B3', r.postal ? '〒' + r.postal : ''); put('B4', r.address || '');
+    put('B3', r.postal ? '〒' + fmtZip(r.postal) : ''); put('B4', r.address || '');
     put('B5', r.name || '', { font: { size: 13, bold: true } }); put('B6', r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : r.honorific), { font: { size: 12 } });
     put('A10', '下記の通りご請求申し上げます。');
     merge('A11:D12', 'ご請求金額', { align: { vertical: 'middle' } }); merge('E11:I12', v.total, { font: { size: 14, bold: true }, fmt: '"¥"#,##0', align: { vertical: 'middle' } }); border('A11:I12');
@@ -2054,8 +2065,8 @@ var INV = (function () {
     if (lk.logo) { var li = wb.addImage({ base64: lk.logo, extension: 'png' }); ws.addImage(li, { tl: { col: 9, row: fr - 1 }, ext: { width: 200, height: 50 }, editAs: 'oneCell' }); fr += 3; }
     if (lk.seal) { var si = wb.addImage({ base64: lk.seal, extension: 'png' }); var sp = SEAL_PX[lk.sealSize]; ws.addImage(si, { tl: { col: 14.5, row: fr - (lk.logo ? 4 : 1.5) }, ext: { width: sp, height: sp }, editAs: 'oneCell' }); }
     put('J' + fr, f.company_name || '', { font: { bold: true, size: 12, color: { argb: argb(strong ? col.c : '#111111') } } });
-    put('J' + (fr + 1), (f.postal ? '〒' + f.postal + ' ' : '') + (f.address || ''));
-    put('J' + (fr + 2), (f.tel ? 'TEL：' + f.tel : '') + (f.person ? '　担当：' + f.person : ''));
+    put('J' + (fr + 1), (f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || ''));
+    put('J' + (fr + 2), (f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : ''));
     if (f.reg_no) put('J' + (fr + 3), '登録番号　' + f.reg_no);
     var buf = await wb.xlsx.writeBuffer();
     return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -2140,7 +2151,7 @@ var INV = (function () {
 
   return { open: open, close: close, tab: tab, build: build, pick: pick, edit: edit, addLine: addLine, delLine: delLine, meta: meta, reset: reset, again: again, issue: issue,
     setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
-    saveProfile: saveProfile, setLook: setLook, pickImg: pickImg, saveLook: saveLook, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals };
+    saveProfile: saveProfile, setLook: setLook, pickImg: pickImg, saveLook: saveLook, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals, _fmtZip: fmtZip, _fmtTel: fmtTel };
 })();
 </script>
 <!-- ===================== 請求書（invoice）ここまで ===================== -->
