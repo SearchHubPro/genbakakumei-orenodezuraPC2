@@ -13,6 +13,9 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; margin: 0; padding: 0; }
         .header { background: #1a73e8; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; }
         .header h1 { margin: 0; font-size: 20px; letter-spacing: 1px; }
+        .header { flex-wrap: wrap; gap: 12px; }  /* ボタンが多くて入りきらない幅では、ボタンを次の行へ回す */
+        .header h1 { white-space: nowrap; }
+        .header > div { flex-wrap: wrap; justify-content: flex-end; }
         
         .container { padding: 24px; max-width: 1400px; margin: 0 auto; }
         .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
@@ -141,6 +144,7 @@
             <button class="btn btn-gray" onclick="resetLicense()"><i class="fas fa-sync-alt"></i> ⚙️ 設定リセット</button>
             <button class="btn btn-orange" onclick="openMasterModal()"><i class="fas fa-plus-circle"></i> マスター登録</button>
             <button class="btn btn-purple" onclick="openManageMasterModal()"><i class="fas fa-list"></i> マスター編集</button>
+            <button class="btn nw-btn nw-pcbtn" style="background:#fff; color:#1f3b5c; border:1px solid #cbd5e0;" onclick="NEWS.open()"><i class="fas fa-bell"></i> お知らせ<span class="nw-dot"></span></button>
             <button class="btn" style="background:#f59e0b; color:#fff;" onclick="INV.open()"><i class="fas fa-file-invoice"></i> 請求書</button>
             <button class="btn" style="background:#10b981; color:#fff;" onclick="openAiModal()"><i class="fas fa-robot"></i> 俺の右腕(AI)</button>
             <button class="btn" style="background:#fff; color:#1a73e8;" onclick="loadData()"><i class="fas fa-sync-alt"></i> 最新を取得</button>
@@ -2155,6 +2159,145 @@ var INV = (function () {
 })();
 </script>
 <!-- ===================== 請求書（invoice）ここまで ===================== -->
+
+
+<!-- ===================== お知らせ（news）ここから ===================== -->
+<style>
+  .nw-dot { position: absolute; top: -3px; right: -3px; width: 11px; height: 11px; border-radius: 50%; background: #e11d48; border: 2px solid #fff; display: none; }
+  .nw-has .nw-dot { display: block; }
+  .nw-pcbtn { position: relative; }
+  .nw-bell { position: absolute; right: 10px; top: calc(50% - 20px); width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .nw-bell .nw-dot { top: 4px; right: 4px; border-color: #1a365d; }
+  #nw { position: fixed; inset: 0; z-index: 2100; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  #nw.open { display: flex; }
+  #nw .nw-box { background: #fff; color: #1a202c; width: 100%; max-width: 520px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  #nw .nw-head { background: #1f3b5c; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 8px; }
+  #nw .nw-head b { flex: 1; font-size: 16px; }
+  #nw .nw-x { background: none; border: 0; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; padding: 4px 8px; }
+  #nw .nw-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 16px; }
+  #nw .nw-item { padding: 14px 0; border-bottom: 1px solid #e2e8f0; }
+  #nw .nw-item:last-child { border-bottom: 0; }
+  #nw .nw-date { font-size: 12px; color: #64748b; }
+  #nw .nw-new { display: inline-block; font-size: 11px; font-weight: bold; color: #fff; background: #e11d48; border-radius: 4px; padding: 0 6px; margin-left: 6px; vertical-align: 1px; }
+  #nw .nw-ttl { font-size: 15px; font-weight: bold; margin: 2px 0 6px; line-height: 1.45; }
+  #nw .nw-body { font-size: 13.5px; line-height: 1.7; color: #334155; margin: 0; }
+  #nw .nw-acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  #nw .nw-acts button, #nw .nw-acts a { font-size: 13.5px; font-weight: bold; padding: 9px 14px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  #nw .nw-try { background: #f59e0b; color: #fff; border: 0; }
+  #nw .nw-guide { background: #fff; color: #1f3b5c; border: 1px solid #a9bcd3; }
+  #nw .nw-foot { border-top: 1px solid #e2e8f0; padding: 10px 16px; display: flex; gap: 10px; align-items: center; }
+  #nw .nw-foot a { flex: 1; font-size: 13px; color: #1f3b5c; }
+  #nw .nw-close { background: #1f3b5c; color: #fff; border: 0; border-radius: 8px; padding: 9px 18px; font-weight: bold; font-size: 14px; cursor: pointer; }
+  #nw .nw-empty { color: #64748b; font-size: 14px; padding: 18px 0; }
+  #iv-look { scroll-margin-top: 76px; }
+  @media print { #nw, .nw-bell, .nw-pcbtn { display: none !important; } }
+</style>
+<div id="nw" aria-hidden="true" onclick="if (event.target === this) NEWS.close()">
+  <div class="nw-box" role="dialog" aria-modal="true" aria-labelledby="nw-ttl">
+    <div class="nw-head"><i class="fas fa-bell"></i><b id="nw-ttl">お知らせ</b><button type="button" class="nw-x" onclick="NEWS.close()" aria-label="閉じる">×</button></div>
+    <div class="nw-list" id="nw-list"></div>
+    <div class="nw-foot"><a id="nw-all" target="_blank" rel="noopener">ガイドで全部見る</a><button type="button" class="nw-close" onclick="NEWS.close()">閉じる</button></div>
+  </div>
+</div>
+<script>
+// お知らせ（更新情報）：ガイドのリポジトリの news.json を読み、まだ見ていないものに赤い点を付ける。
+//   新しいものがあれば、画面を開いたときに1回だけ窓で出す。見たかどうかはこの端末に覚える（localStorage）。
+var NEWS = (function () {
+  var APP = 'pc';                                             // pc＝親方デスク／mobile＝親方モバイル
+  var GUIDE = 'https://searchhubpro.github.io/genbakakumei-orenodezura-guide/';
+  var SRC = ['../genbakakumei-orenodezura-guide/news.json', GUIDE + 'news.json'];
+  var KEY = 'oreno_news_seen';
+  var items = [], unread = [], shown = false;
+
+  function $(id) { return document.getElementById(id); }
+  function e(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  function seen() { try { var a = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
+  function markAll() {
+    var a = seen(); items.forEach(function (i) { if (a.indexOf(i.id) < 0) a.push(i.id); });
+    try { localStorage.setItem(KEY, JSON.stringify(a.slice(-200))); } catch (x) {}
+    unread = []; dot();
+  }
+  function dot() { document.querySelectorAll('.nw-btn').forEach(function (b) { b.classList.toggle('nw-has', unread.length > 0); }); }
+  function jp(d) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || ''); return m ? (+m[1]) + '年' + (+m[2]) + '月' + (+m[3]) + '日' : e(d); }
+  function guideUrl(a) { return GUIDE + (a || '#news'); }
+
+  async function load() {
+    for (var i = 0; i < SRC.length; i++) {
+      try {
+        var r = await fetch(SRC[i] + '?t=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) continue;
+        var j = await r.json();
+        return (j.items || []).filter(function (it) { return it && it.id && (!it.apps || it.apps.indexOf(APP) >= 0); });
+      } catch (x) {}
+    }
+    return null;
+  }
+
+  function draw(list) {
+    var a = seen();
+    $('nw-all').href = guideUrl('#news');
+    if (!list.length) { $('nw-list').innerHTML = '<p class="nw-empty">お知らせはありません。</p>'; return; }
+    $('nw-list').innerHTML = list.map(function (it) {
+      var acts = '';
+      if (it.action) acts += '<button type="button" class="nw-try" onclick="NEWS.go(\'' + e(it.id) + '\')"><i class="fas fa-hand-pointer"></i>' + e(it.action_label || '使ってみる') + '</button>';
+      acts += '<a class="nw-guide" target="_blank" rel="noopener" href="' + e(guideUrl(it.guide)) + '"><i class="fas fa-book-open"></i>ガイドで見る</a>';
+      return '<div class="nw-item"><div class="nw-date">' + jp(it.date) + (a.indexOf(it.id) < 0 ? '<span class="nw-new">NEW</span>' : '') + '</div>' +
+        '<div class="nw-ttl">' + e(it.title) + '</div><p class="nw-body">' + e(it.body).replace(/\n/g, '<br>') + '</p><div class="nw-acts">' + acts + '</div></div>';
+    }).join('');
+  }
+
+  function show(list) {
+    draw(list); var b = $('nw'); b.classList.add('open'); b.setAttribute('aria-hidden', 'false');
+    $('nw-list').scrollTop = 0; markAll();
+  }
+  function close() { var b = $('nw'); b.classList.remove('open'); b.setAttribute('aria-hidden', 'true'); }
+
+  // ボタンから開く：全部（新しいものに NEW）
+  async function open() {
+    if (!items.length) { var l = await load(); if (l) items = l; }
+    if (!items.length) { draw([]); $('nw-list').innerHTML = '<p class="nw-empty">お知らせを読み込めませんでした。通信を確かめて、もう一度押してください。</p>'; var b = $('nw'); b.classList.add('open'); b.setAttribute('aria-hidden', 'false'); return; }
+    show(items);
+  }
+
+  // 「使ってみる」
+  function go(id) {
+    var it = items.find(function (x) { return x.id === id; }); if (!it) return;
+    close();
+    if ((it.action === 'invoice' || it.action === 'invoice_look') && window.INV) {
+      INV.open().then(function () {
+        INV.tab(it.action === 'invoice' ? 'make' : 'set');
+        if (it.action === 'invoice_look') setTimeout(function () { var el = $('iv-look'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150);
+      });
+    } else if (it.action === 'report') {
+      var nb = document.querySelector('.nav-item[onclick*="\'report\'"]');
+      if (nb && typeof switchTab === 'function') switchTab('report', nb);
+      setTimeout(function () { var el = $('expGas'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+    }
+  }
+
+  // 画面（ログインのあとのメイン）が出ているか
+  function mainShown() {
+    var m = $(APP === 'pc' ? 'mainView' : 'mainApp');
+    return !!(m && m.offsetParent !== null && getComputedStyle(m).display !== 'none');
+  }
+
+  async function start() {
+    var l = await load(); if (!l) return;
+    items = l;
+    var a = seen(); unread = items.filter(function (i) { return a.indexOf(i.id) < 0; }); dot();
+    if (!unread.length) return;
+    var n = 0, t = setInterval(function () {                  // ログインが済んでメインの画面が出たら1回だけ出す
+      if (shown) { clearInterval(t); return; }
+      if (++n > 900) { clearInterval(t); return; }             // 30分たっても出なければやめる（赤い点は残る）
+      if (mainShown() && !document.querySelector('#inv.open') && !$('nw').classList.contains('open')) { shown = true; clearInterval(t); show(unread.slice()); }
+    }, 2000);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+
+  return { open: open, close: close, go: go };
+})();
+</script>
+<!-- ===================== お知らせ（news）ここまで ===================== -->
 
 </body>
 </html>
