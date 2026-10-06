@@ -1293,6 +1293,8 @@
 
 
 
+
+
 <!-- ===================== 請求書（invoice）ここから ===================== -->
 <style>
   #inv { position: fixed; inset: 0; z-index: 2000; background: #f0f2f5; overflow-y: auto; -webkit-overflow-scrolling: touch; display: none; color: #1a202c; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
@@ -1452,16 +1454,24 @@ var INV = (function () {
     var r = await Promise.all([
       api('billing_profile?select=*'),
       api('billing_clients?select=*&order=name'),
-      api('sites?select=id,name,company,bill_unit_price,bill_method,contract_amount,contract_tax,tax_timing&order=name'),
+      api('sites?select=id,name,company,bill_to,bill_unit_price,bill_method,contract_amount,contract_tax,tax_timing&order=name'),
       api('invoices?select=*&order=issue_date.desc,id.desc')
     ]);
     S.profile = r[0][0] || null; S.clients = r[1] || []; S.sites = r[2] || []; S.invoices = r[3] || [];
   }
   function clientNames() {
     var set = {};
-    S.sites.forEach(function (s) { if (s.company && s.company.trim()) set[s.company.trim()] = 1; });
+    S.sites.forEach(function (s) { var b = billTo(s); if (b) set[b] = 1; });
     S.clients.forEach(function (c) { set[c.name] = 1; });
     return Object.keys(set).sort();
+  }
+  function billTo(s) { return ((s && s.bill_to) || '').trim() || ((s && s.company) || '').trim(); }   // 請求先（空なら応援先の会社）
+  function bankText(p) {                       // 振込先を請求書に出す形にする
+    if (!p) return '';
+    if (p.bank_name || p.bank_number) {
+      return [((p.bank_name || '') + ' ' + (p.bank_branch || '')).trim(), (p.bank_type || '普通') + '口座 ' + (p.bank_number || ''), p.bank_holder ? '口座名義 ' + p.bank_holder : ''].filter(Boolean).join('\n');
+    }
+    return p.bank || '';
   }
   function clientOf(name) { return S.clients.find(function (c) { return c.name === name; }) || { name: name, postal: '', address: '', person: '', honorific: '様', unit_price: null, closing: 31 }; }
   function siteOf(name) { return S.sites.find(function (x) { return x.name === name; }) || { name: name, bill_method: 'joyo' }; }
@@ -1512,7 +1522,7 @@ var INV = (function () {
     }
     var names = clientNames();
     if (!S.profile || !S.profile.company_name) return '<div class="iv-card"><p class="iv-alert">先に「設定」で、自社の情報（会社名・振込先など）と既定の単価を入れてください。</p><button class="iv-btn" type="button" onclick="INV.tab(\'set\')">設定を開く</button></div>';
-    if (!names.length) return '<div class="iv-card"><p class="iv-alert">応援先の会社が登録された現場がありません。現場の登録で「応援先の会社名」を入れると、ここで選べるようになります。</p></div>';
+    if (!names.length) return '<div class="iv-card"><p class="iv-alert">請求先の会社がまだありません。「設定」の「現場ごとの請求のしかた」で、現場ごとに請求先の会社を入れてください（応援先の会社が入っている現場は、その会社が請求先になります）。</p><button class="iv-btn" type="button" onclick="INV.tab(\'set\')">設定を開く</button></div>';
     var d = S.draft;
     if (!S.sel || names.indexOf(S.sel.client) < 0) S.sel = { client: names[0], month: defaultMonth(clientOf(names[0]).closing) };
     var cur = S.sel.client, cli = clientOf(cur), month = S.sel.month, pr = period(month, cli.closing);
@@ -1612,21 +1622,29 @@ var INV = (function () {
     var h = '<div class="iv-card"><h3>自社の情報（請求書の差出人）</h3><div class="iv-row">'
       + '<div><label>会社名・屋号</label><input id="ip-name" value="' + e(p.company_name) + '"></div>'
       + '<div><label>担当者</label><input id="ip-person" value="' + e(p.person) + '"></div>'
-      + '<div><label>〒</label><input id="ip-postal" value="' + e(p.postal) + '" placeholder="591-8025"></div>'
-      + '<div><label>電話</label><input id="ip-tel" value="' + e(p.tel) + '" inputmode="tel"></div></div>'
-      + '<label>住所</label><input id="ip-addr" value="' + e(p.address) + '">'
-      + '<div class="iv-row"><div><label>登録番号（インボイス）</label><input id="ip-reg" value="' + e(p.reg_no) + '" placeholder="T1234567890123"></div>'
-      + '<div><label>既定の単価（1人工・税別）</label><input id="ip-price" inputmode="numeric" value="' + e(p.default_unit_price || '') + '" placeholder="17000"></div></div>'
-      + '<label>振込先（銀行・支店・口座・名義。改行してそのまま書いてください）</label><textarea id="ip-bank" placeholder="○○銀行 ○○支店&#10;普通口座 1234567&#10;口座名義 ○○○○">' + e(p.bank) + '</textarea>'
+      + '<div><label>〒</label><input id="ip-postal" value="' + e(p.postal) + '" placeholder="123-4567"></div>'
+      + '<div><label>電話</label><input id="ip-tel" value="' + e(p.tel) + '" inputmode="tel" placeholder="090-1234-5678"></div></div>'
+      + '<label>住所</label><input id="ip-addr" value="' + e(p.address) + '" placeholder="大阪府○○市○○町1-2-3">'
+      + '<div class="iv-row"><div><label>登録番号（インボイス）　T の後の数字13桁</label><div style="display:flex;align-items:center;gap:6px"><b style="font-size:18px">T</b><input id="ip-reg" inputmode="numeric" maxlength="16" value="' + e(String(p.reg_no || '').replace(/^T/i, '')) + '" placeholder="1234567890123"></div></div>'
+      + '<div><label>既定の単価（1人工・税別）</label><input id="ip-price" inputmode="numeric" value="' + e(p.default_unit_price || '') + '" placeholder="例：17000"></div></div>'
+      + '<h3 style="margin-top:8px">振込先</h3>'
+      + ((p.bank && !p.bank_name && !p.bank_number) ? '<p class="iv-note">前に入れた振込先：<br>' + e(p.bank).replace(/\n/g, '<br>') + '<br>下の欄に入れ直してください。</p>' : '')
+      + '<div class="iv-row"><div><label>銀行名</label><input id="ip-bname" value="' + e(p.bank_name) + '" placeholder="○○銀行"></div>'
+      + '<div><label>支店名</label><input id="ip-bbranch" value="' + e(p.bank_branch) + '" placeholder="○○支店"></div>'
+      + '<div><label>種別</label><select id="ip-btype">' + ['普通', '当座'].map(function (x) { return '<option' + (x === (p.bank_type || '普通') ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select></div>'
+      + '<div><label>口座番号</label><input id="ip-bnum" inputmode="numeric" value="' + e(p.bank_number) + '" placeholder="1234567"></div></div>'
+      + '<label>口座名義</label><input id="ip-bholder" value="' + e(p.bank_holder) + '" placeholder="カ）○○○○">'
+      + '<p class="iv-note" id="ip-bprev">請求書にはこう出ます：<br>' + e(bankText(p) || '（まだ入っていません）').replace(/\n/g, '<br>') + '</p>'
       + '<div class="iv-btns"><button class="iv-btn" type="button" onclick="INV.saveProfile()">自社の情報を保存</button></div></div>';
     var names = clientNames();
-    h += '<div class="iv-card"><h3>宛先の会社</h3><p class="iv-note">現場の「応援先の会社名」に入っている会社が並びます。単価を空にすると既定の単価で計算します。</p>';
+    h += '<div class="iv-card"><h3>宛先の会社</h3><p class="iv-note">現場の応援先・請求先に入っている会社と、ここで足した会社が並びます。単価を空にすると既定の単価で計算します。</p>'
+      + '<div class="iv-row" style="align-items:end"><div><label>宛先の会社を足す（元請けなど）</label><input id="ic-new" placeholder="株式会社○○"></div><div><button class="iv-btn sm" type="button" style="margin-bottom:10px" onclick="INV.addClient()">足す</button></div></div>';
     if (!names.length) h += '<p class="iv-note">まだありません。</p>';
     names.forEach(function (n, i) {
       var c = clientOf(n);
       h += '<details class="iv-cli"><summary>' + e(n) + '</summary><div class="iv-row">'
         + '<div><label>〒</label><input id="ic-postal' + i + '" value="' + e(c.postal) + '"></div>'
-        + '<div><label>担当者名</label><input id="ic-person' + i + '" value="' + e(c.person) + '" placeholder="石山 哲也"></div>'
+        + '<div><label>担当者名</label><input id="ic-person' + i + '" value="' + e(c.person) + '" placeholder="山田 太郎"></div>'
         + '<div><label>敬称</label><select id="ic-hon' + i + '">' + ['様', '御中', '殿'].map(function (x) { return '<option' + (x === c.honorific ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select></div>'
         + '<div><label>単価（空＝既定）</label><input id="ic-price' + i + '" inputmode="numeric" value="' + e(c.unit_price || '') + '"></div>'
         + '<div><label>締め日</label><select id="ic-close' + i + '">' + CLOSINGS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === Number(c.closing) ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div></div>'
@@ -1634,12 +1652,14 @@ var INV = (function () {
         + '<button class="iv-btn sm" type="button" onclick="INV.saveClient(' + i + ')">この会社を保存</button></details>';
     });
     h += '</div>';
-    var billSites = S.sites.filter(function (s) { return s.company && s.company.trim(); });
+    var billSites = S.sites.slice();
     h += '<div class="iv-card"><h3>現場ごとの請求のしかた</h3><p class="iv-note">ふつうは「常用」のままで大丈夫です。単価が違う現場だけ単価を入れてください（空なら会社の単価→既定の単価）。請負の現場は、請求のしかたと請負金額を入れてください。</p>';
-    if (!billSites.length) h += '<p class="iv-note">応援先の会社がある現場はまだありません。</p>';
+    if (!billSites.length) h += '<p class="iv-note">現場がまだありません。</p>';
+    h += '<datalist id="iv-cli-list">' + names.map(function (n) { return '<option value="' + e(n) + '">'; }).join('') + '</datalist>';
     billSites.forEach(function (s) {
       var k = s.id, m = s.bill_method || 'joyo';
-      h += '<div class="iv-sitecfg"><b>' + e(s.name) + '</b>（' + e(s.company) + '）<div class="iv-row" style="margin-top:8px">'
+      h += '<div class="iv-sitecfg"><b>' + e(s.name) + '</b>' + (s.company ? '（応援先：' + e(s.company) + '）' : '（自社の現場）') + '<div class="iv-row" style="margin-top:8px">'
+        + '<div><label>請求先の会社' + (s.company ? '（空＝応援先）' : '（空＝請求しない）') + '</label><input id="is-to' + k + '" list="iv-cli-list" value="' + e(s.bill_to || '') + '" placeholder="' + e(s.company || '株式会社○○') + '"></div>'
         + '<div><label>請求のしかた</label><select id="is-m' + k + '" onchange="INV.cfgShow(' + k + ')">' + METHODS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === m ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div>'
         + '<div id="is-pw' + k + '"' + (m === 'dekidaka' ? ' style="display:none"' : '') + '><label>単価（空＝会社の単価）</label><input id="is-price' + k + '" inputmode="numeric" value="' + e(s.bill_unit_price || '') + '"></div>'
         + '<div class="is-c' + k + '"' + (m === 'joyo' ? ' style="display:none"' : '') + '><label>請負金額</label><input id="is-amt' + k + '" inputmode="numeric" value="' + e(s.contract_amount || '') + '"></div>'
@@ -1663,9 +1683,12 @@ var INV = (function () {
     var pr = period(month, cli.closing);
     try {
       var rows = await api('attendance?select=work_date,site_name,headcount,client_company,gasoline,highway,parking,misc&work_date=gte.' + pr.from + '&work_date=lte.' + pr.to + '&order=work_date');
-      var siteCo = {}; S.sites.forEach(function (s) { siteCo[s.name] = (s.company || '').trim(); });
-      rows = rows.filter(function (r) { return ((r.client_company || '').trim() || siteCo[r.site_name] || '') === name; });
-      var special = S.sites.filter(function (s) { return (s.company || '').trim() === name && (s.bill_method === 'dekidaka' || s.bill_method === 'seisan'); }).map(function (s) { return s.name; });
+      rows = rows.filter(function (r) {
+        var s = S.sites.find(function (x) { return x.name === r.site_name; });
+        var to = (s && (s.bill_to || '').trim()) || (r.client_company || '').trim() || (s && (s.company || '').trim()) || '';
+        return to === name;
+      });
+      var special = S.sites.filter(function (s) { return billTo(s) === name && (s.bill_method === 'dekidaka' || s.bill_method === 'seisan'); }).map(function (s) { return s.name; });
       var dup = S.invoices.find(function (v) { return v.status === 'issued' && v.client_name === name && v.period_from === pr.from && v.period_to === pr.to; });
       S.draft = { client: name, month: month, from: pr.from, to: pr.to, issue: pr.to, label: Number(month.slice(0, 4)) + '年' + Number(month.slice(5, 7)) + '月度', note: '',
         rows: rows, special: special, dek: {}, fin: {}, lines: [], dup: dup ? (dup.issue_date + ' 発行') : '' };
@@ -1755,7 +1778,7 @@ var INV = (function () {
       license_key: myLicense, client_name: d.client, issue_date: d.issue, period_from: d.from, period_to: d.to, month_label: d.label,
       lines: lines, taxable_total: t.taxable, tax: t.tax, exempt_total: t.exempt, total: t.total, note: d.note || '',
       recipient: { name: d.client, postal: cli.postal || '', address: cli.address || '', person: cli.person || '', honorific: cli.honorific || '様' },
-      issuer: { company_name: p.company_name, postal: p.postal, address: p.address, tel: p.tel, person: p.person, reg_no: p.reg_no, bank: p.bank }
+      issuer: { company_name: p.company_name, postal: p.postal, address: p.address, tel: p.tel, person: p.person, reg_no: p.reg_no, bank: bankText(p) }
     };
     try {
       var saved = await api('invoices', { method: 'POST', body: body, headers: { Prefer: 'return=representation' } });
@@ -1795,7 +1818,7 @@ var INV = (function () {
       + '<div>対象外 ※<b>' + e(yen(t.exempt)) + '</b></div><div>総　額<b>' + e(yen(v.total)) + '</b></div></div>'
       + (notes.length ? '<div style="font-size:11px;margin-top:4px">' + notes.map(e).join('<br>') + '</div>' : '')
       + '<div class="p-note"><b>備　考</b>\n' + e(v.note) + '</div>'
-      + '<div class="p-from"><div class="nm">' + e(f.company_name) + '</div>' + (f.postal ? '〒' + e(f.postal) + ' ' : '') + e(f.address) + '<br>' + (f.tel ? 'TEL：' + e(f.tel) : '') + (f.person ? '　担当：' + e(f.person) : '') + (f.reg_no ? '<br>登録番号　' + e(f.reg_no) : '') + '</div>';
+      + '<div class="p-from"><div class="nm">' + e(f.company_name) + '</div>' + [((f.postal ? '〒' + f.postal + ' ' : '') + (f.address || '')).trim(), ((f.tel ? 'TEL：' + f.tel : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean).map(e).join('<br>') + '</div>';
   }
   function baseName(v) { return (v.month_label || '') + '請求書' + v.client_name; }
   async function makePdf(v) {
@@ -1906,11 +1929,23 @@ var INV = (function () {
 
   // ---------- 設定の保存 ----------
   async function saveProfile() {
+    var reg = $('ip-reg').value.replace(/[\s-]/g, '').replace(/^T/i, '');
+    if (reg && !/^[0-9]{13}$/.test(reg)) return alert('登録番号は、T の後の数字13桁を入れてください（今は ' + reg.length + ' 文字です）。');
     var b = { license_key: myLicense, company_name: $('ip-name').value.trim(), person: $('ip-person').value.trim(), postal: $('ip-postal').value.trim(), tel: $('ip-tel').value.trim(),
-      address: $('ip-addr').value.trim(), reg_no: $('ip-reg').value.trim(), default_unit_price: Math.round(money($('ip-price').value)), bank: $('ip-bank').value.trim(), updated_at: new Date().toISOString() };
+      address: $('ip-addr').value.trim(), reg_no: reg ? 'T' + reg : '', default_unit_price: Math.round(money($('ip-price').value)),
+      bank_name: $('ip-bname').value.trim(), bank_branch: $('ip-bbranch').value.trim(), bank_type: $('ip-btype').value, bank_number: $('ip-bnum').value.trim(), bank_holder: $('ip-bholder').value.trim(),
+      updated_at: new Date().toISOString() };
+    b.bank = (b.bank_name || b.bank_number) ? bankText(b) : ((S.profile && S.profile.bank) || '');
     if (!b.company_name) return alert('会社名・屋号を入れてください。');
-    try { var r = await api('billing_profile?on_conflict=license_key', { method: 'POST', body: b, headers: { Prefer: 'resolution=merge-duplicates,return=representation' } }); S.profile = r[0]; alert('保存しました。'); }
+    try { var r = await api('billing_profile?on_conflict=license_key', { method: 'POST', body: b, headers: { Prefer: 'resolution=merge-duplicates,return=representation' } }); S.profile = r[0]; alert('保存しました。'); render(); }
     catch (err) { alert('保存できませんでした。\n' + err.message); }
+  }
+  async function addClient() {
+    var n = $('ic-new').value.trim();
+    if (!n) return alert('会社名を入れてください。');
+    if (clientNames().indexOf(n) >= 0) return alert(n + ' はもうあります。');
+    try { var r = await api('billing_clients', { method: 'POST', body: { license_key: myLicense, name: n }, headers: { Prefer: 'return=representation' } }); S.clients = S.clients.concat(r); render(); }
+    catch (err) { alert('足せませんでした。\n' + err.message); }
   }
   async function saveClient(i) {
     var n = clientNames()[i];
@@ -1924,10 +1959,12 @@ var INV = (function () {
   }
   async function saveSite(id) {
     var m = $('is-m' + id).value, pv = $('is-price' + id).value.trim(), av = $('is-amt' + id).value.trim();
-    var b = { bill_method: m, bill_unit_price: pv ? Math.round(money(pv)) : null, contract_amount: av ? Math.round(money(av)) : null, contract_tax: $('is-tax' + id).value, tax_timing: $('is-tt' + id).value };
+    var b = { bill_to: $('is-to' + id).value.trim() || null, bill_method: m, bill_unit_price: pv ? Math.round(money(pv)) : null, contract_amount: av ? Math.round(money(av)) : null, contract_tax: $('is-tax' + id).value, tax_timing: $('is-tt' + id).value };
     if (m !== 'joyo' && !b.contract_amount) return alert('請負金額を入れてください。');
+    var cur = S.sites.find(function (x) { return x.id === id; });
+    if (!b.bill_to && !(cur && cur.company) && (m !== 'joyo' || b.bill_unit_price)) return alert('自社の現場は、請求先の会社を入れてください。');
     try { await api('sites?id=eq.' + id, { method: 'PATCH', body: b, headers: { Prefer: 'return=minimal' } });
-      var s = S.sites.find(function (x) { return x.id === id; }); if (s) Object.assign(s, b); S.draft = null; alert('保存しました。'); }
+      var s = S.sites.find(function (x) { return x.id === id; }); if (s) Object.assign(s, b); S.draft = null; S.sel = null; alert('保存しました。'); render(); }
     catch (err) { alert('保存できませんでした。\n' + err.message); }
   }
 
@@ -1944,7 +1981,7 @@ var INV = (function () {
 
   return { open: open, close: close, tab: tab, build: build, pick: pick, edit: edit, addLine: addLine, delLine: delLine, meta: meta, reset: reset, again: again, issue: issue,
     setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
-    saveProfile: saveProfile, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals };
+    saveProfile: saveProfile, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals };
 })();
 </script>
 <!-- ===================== 請求書（invoice）ここまで ===================== -->
