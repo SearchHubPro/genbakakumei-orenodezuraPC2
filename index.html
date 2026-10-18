@@ -2023,61 +2023,159 @@ var INV = (function () {
   }
 
   // ---------- Excel（パソコン） ----------
+  // Excel：PDF と同じ見た目（標準・カラー・シンプル）で、A4 1枚にちょうど収まるように作る。金額は式（数量×単価）
+  function imgSize(src) {
+    return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); }; im.onerror = function () { ok({ w: 1, h: 1 }); }; im.src = src; });
+  }
   async function makeXlsx(v) {
     await loadLib('xls', function () { return !!window.ExcelJS; });
-    var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), lk = look(), col = COLORS[lk.color];
-    var argb = function (hex) { return 'FF' + hex.replace('#', '').toUpperCase(); };
-    var strong = lk.style === 'color', fillHead = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(strong ? col.c : col.l) } };
-    var wb = new window.ExcelJS.Workbook(), ws = wb.addWorksheet('請求書', { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, margins: { left: 0.5, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } } });
-    ws.columns = [{ width: 5 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 5 }, { width: 5 }, { width: 4 }, { width: 4 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 6 }, { width: 8 }];
-    var font = { name: 'ＭＳ 明朝', size: 10 }, thin = { style: 'thin' }, box = { top: thin, left: thin, bottom: thin, right: thin };
-    function put(addr, val, opt) { var c = ws.getCell(addr); c.value = val; c.font = Object.assign({}, font, (opt && opt.font) || {}); if (opt && opt.align) c.alignment = opt.align; if (opt && opt.fmt) c.numFmt = opt.fmt; return c; }
-    function merge(range, val, opt) { ws.mergeCells(range); var c = put(range.split(':')[0], val, opt); return c; }
-    function border(range) { var a = range.split(':'), s = ws.getCell(a[0]), en = ws.getCell(a[1]); for (var rr = s.row; rr <= en.row; rr++) for (var cc = s.col; cc <= en.col; cc++) ws.getCell(rr, cc).border = box; }
-    put('B1', '発行日：'); merge('D1:H1', jpDate(v.issue_date)); merge('M1:R2', '請　求　書', { font: { size: 20, bold: true, color: { argb: argb(lk.style === 'standard' ? '#111111' : (strong ? col.t : col.c)) } }, align: { horizontal: 'center', vertical: 'middle' } });
-    put('B3', r.postal ? '〒' + fmtZip(r.postal) : ''); put('B4', r.address || '');
-    put('B5', r.name || '', { font: { size: 13, bold: true } }); put('B6', r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : r.honorific), { font: { size: 12 } });
-    put('A10', '下記の通りご請求申し上げます。');
-    merge('A11:D12', 'ご請求金額', { align: { vertical: 'middle' } }); merge('E11:I12', v.total, { font: { size: 14, bold: true }, fmt: '"¥"#,##0', align: { vertical: 'middle' } }); border('A11:I12');
-    put('K11', '振込先', { font: { bold: true } });
-    String(f.bank || '').split(/\r?\n/).slice(0, 4).forEach(function (line, i) { put('N' + (11 + i), line); });
-    put('A15', '※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。');
-    put('A16', '対象期間：' + v.period_from + ' 〜 ' + v.period_to, { font: { size: 9 } });
-    var hdr = [['A18', 'No'], ['B18:H18', '品　目'], ['I18:J18', '数　量'], ['K18:L18', '単　位'], ['M18:O18', '単　価'], ['P18:R18', '金　額']];
-    hdr.forEach(function (h) { (h[0].indexOf(':') > 0 ? merge : put)(h[0], h[1], { font: { bold: true }, align: { horizontal: 'center' } }); });
-    border('A18:R18'); ws.getRow(18).eachCell(function (c) { c.fill = fillHead; if (strong) c.font = Object.assign({}, c.font, { color: { argb: 'FFFFFFFF' } }); });
-    if (strong) ['A11', 'K11'].forEach(function (a) { var c = ws.getCell(a); c.fill = fillHead; c.font = Object.assign({}, c.font, { bold: true, color: { argb: 'FFFFFFFF' } }); });
-    var lines = v.lines || [], n = Math.max(lines.length, 12), row = 19;
-    for (var i = 0; i < n; i++, row++) {
-      var l = lines[i];
-      put('A' + row, l ? i + 1 : null, { align: { horizontal: 'center' } });
-      merge('B' + row + ':H' + row, l ? l.item + (l.tax === '対象外' ? ' ※' : (l.tax === '最後' ? ' ※※' : '')) : null, { align: { shrinkToFit: true } });
-      merge('I' + row + ':J' + row, l ? Number(l.qty) : null, { fmt: '#,##0.##' });
-      merge('K' + row + ':L' + row, l ? l.unit : null, { align: { horizontal: 'center' } });
-      merge('M' + row + ':O' + row, l ? Number(l.price) : null, { fmt: '#,##0' });
-      merge('P' + row + ':R' + row, l ? { formula: 'I' + row + '*M' + row, result: Math.round(l.amount) } : null, { fmt: '#,##0' });
-      border('A' + row + ':R' + row);
-      if (strong && i % 2 === 0) ['A', 'B', 'I', 'K', 'M', 'P'].forEach(function (cl) { ws.getCell(cl + row).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(col.l) } }; });
+    var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), lk = look(), col = COLORS[lk.color], st = lk.style;
+    var A = function (hex) { return 'FF' + hex.replace('#', '').toUpperCase(); };
+    var C = A(col.c), L = A(col.l), T = A(col.t), WHITE = 'FFFFFFFF', INK = 'FF111111', GRAY = 'FF64748B', LINE = 'FFCBD5E1';
+    var fill = function (argb) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: argb } }; };
+    var wb = new window.ExcelJS.Workbook();
+    var ws = wb.addWorksheet('請求書', { views: [{ showGridLines: false }], properties: { defaultRowHeight: 15 },
+      pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, horizontalCentered: true,
+        margins: { left: 0.4, right: 0.4, top: 0.45, bottom: 0.4, header: 0.2, footer: 0.2 } } });
+    // 列：A=No / B〜H=品目 / I〜J=数量 / K〜L=単位 / M〜O=単価 / P〜R=金額（PDF の表と同じ割合）
+    var W = [5.6, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 4.9, 4.9, 4.1, 4.1, 4.5, 4.5, 4.5, 5.6, 5.6, 5.6];
+    ws.columns = W.map(function (w) { return { width: w }; });
+    var FONT = '游ゴシック', thin = function (argb) { return { style: 'thin', color: { argb: argb || 'FF94A3B8' } }; };
+    function cell(addr) { return ws.getCell(addr); }
+    function put(addr, val, o) {
+      o = o || {}; var c = cell(addr); c.value = val;
+      c.font = Object.assign({ name: FONT, size: 9, color: { argb: INK } }, o.font || {});
+      c.alignment = Object.assign({ vertical: 'middle' }, o.align || {});
+      if (o.fmt) c.numFmt = o.fmt; if (o.fill) c.fill = fill(o.fill);
+      return c;
     }
-    var tr = row;
-    merge('A' + tr + ':C' + tr, '合　計', { font: { bold: true }, align: { horizontal: 'center' } });
-    merge('D' + tr + ':E' + tr, '消費税対象'); merge('F' + tr + ':I' + tr, t.taxable, { fmt: '"¥"#,##0' });
-    merge('J' + tr + ':L' + tr, '消費税'); merge('M' + tr + ':O' + tr, t.tax, { fmt: '"¥"#,##0' });
-    merge('P' + tr + ':Q' + tr, '対象外 ※'); put('R' + tr, t.exempt, { fmt: '"¥"#,##0' });
-    border('A' + tr + ':R' + tr);
-    var gr = tr + 2;
-    if (t.later) { merge('J' + gr + ':O' + gr, '消費税は最終回にまとめて ※※'); merge('P' + gr + ':R' + gr, t.later, { fmt: '"¥"#,##0' }); border('J' + gr + ':R' + gr); gr += 1; }
-    merge('M' + gr + ':O' + gr, '総　額', { font: { bold: true }, align: { horizontal: 'center' } }); merge('P' + gr + ':R' + gr, v.total, { font: { bold: true }, fmt: '"¥"#,##0' }); border('M' + gr + ':R' + gr);
-    var nr = gr + 2;
-    put('A' + nr, (t.exempt ? '※印は消費税の対象外です。' : '') + (t.later ? '※※印の消費税は、最終回にまとめてご請求します。' : ''), { font: { size: 9 } });
-    merge('A' + (nr + 1) + ':R' + (nr + 4), '備　考\n' + (v.note || ''), { align: { vertical: 'top', wrapText: true } }); border('A' + (nr + 1) + ':R' + (nr + 4));
-    var fr = nr + 6;
-    if (lk.logo) { var li = wb.addImage({ base64: lk.logo, extension: 'png' }); ws.addImage(li, { tl: { col: 9, row: fr - 1 }, ext: { width: 200, height: 50 }, editAs: 'oneCell' }); fr += 3; }
-    if (lk.seal) { var si = wb.addImage({ base64: lk.seal, extension: 'png' }); var sp = SEAL_PX[lk.sealSize]; ws.addImage(si, { tl: { col: 14.5, row: fr - (lk.logo ? 4 : 1.5) }, ext: { width: sp, height: sp }, editAs: 'oneCell' }); }
-    put('J' + fr, f.company_name || '', { font: { bold: true, size: 12, color: { argb: argb(strong ? col.c : '#111111') } } });
-    put('J' + (fr + 1), (f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || ''));
-    put('J' + (fr + 2), (f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : ''));
-    if (f.reg_no) put('J' + (fr + 3), '登録番号　' + f.reg_no);
+    function merge(range, val, o) { ws.mergeCells(range); var c = put(range.split(':')[0], val, o); if (o && o.fill) eachCell(range, function (x) { x.fill = fill(o.fill); }); return c; }
+    function eachCell(range, fn) { var a = range.split(':'), s = cell(a[0]), en = cell(a[1] || a[0]); for (var rr = s.row; rr <= en.row; rr++) for (var cc = s.col; cc <= en.col; cc++) fn(ws.getCell(rr, cc), rr, cc, s, en); }
+    function box(range, argb, w) { eachCell(range, function (x, rr, cc, s, en) { var b = Object.assign({}, x.border || {}), ln = { style: w || 'thin', color: { argb: argb } }; if (rr === s.row) b.top = ln; if (rr === en.row) b.bottom = ln; if (cc === s.col) b.left = ln; if (cc === en.col) b.right = ln; x.border = b; }); }
+    function grid(range, argb) { eachCell(range, function (x) { var ln = { style: 'thin', color: { argb: argb } }; x.border = { top: ln, bottom: ln, left: ln, right: ln }; }); }
+    function under(range, argb, w) { eachCell(range, function (x) { x.border = Object.assign({}, x.border || {}, { bottom: { style: w || 'thin', color: { argb: argb } } }); }); }
+    function h(row, pt) { ws.getRow(row).height = pt; }
+    var YEN = '"¥"#,##0', NUM = '#,##0';
+
+    // ---- 上：発行日・請求書・宛先 ----
+    h(1, 20); h(2, 20); h(3, 8);
+    put('A1', '発行日：' + jpDate(v.issue_date), { font: { size: 9 } });
+    var titleColor = st === 'color' ? T : (st === 'standard' ? INK : C);
+    merge('M1:R2', st === 'color' ? '請　求　書' : '請 求 書', { font: { size: st === 'color' ? 24 : 16, bold: true, color: { argb: titleColor } }, align: { horizontal: st === 'color' ? 'center' : 'right' } });
+    if (st !== 'color') under('M2:R2', C, 'medium');
+    h(4, 14); h(5, 14); h(6, 20);
+    put('A4', r.postal ? '〒' + fmtZip(r.postal) : '');
+    put('A5', r.address || '');
+    var to = (r.name || '') + '　' + (r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : (r.honorific || '')));
+    merge('A6:H6', to, { font: { size: 12, bold: true } });
+    if (st === 'standard') under('A6:H6', INK);
+
+    // ---- ご請求金額・振込先 ----
+    h(7, 14); h(8, 16); h(9, 22); h(10, 22); h(11, 14); h(12, 8);
+    put('A8', '下記の通りご請求申し上げます。', { font: { size: 9 } });
+    var bank = String(f.bank || '');
+    if (st === 'color') {
+      merge('A9:C10', 'ご請求金額', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('D9:H10', v.total, { font: { bold: true, size: 16 }, fmt: YEN, align: { horizontal: 'left', indent: 1 } });
+      merge('K9:L10', '振込先', { font: { bold: true, size: 9, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('M9:R11', bank, { font: { size: 8.5 }, align: { vertical: 'top', wrapText: true, indent: 1 } });
+    } else {
+      merge('A9:G9', 'ご請求金額（税込）', { font: { size: 9 } });
+      merge('A10:G11', v.total, { font: { bold: true, size: 18, color: { argb: st === 'simple' ? C : INK } }, fmt: st === 'standard' ? '"¥"#,##0" −"' : YEN });
+      if (st === 'standard') box('A9:G11', C, 'medium');
+      else eachCell('A9:A11', function (x) { x.border = { left: { style: 'thick', color: { argb: C } } }; });
+      merge('K9:R9', '振込先', { font: { bold: true, size: 9 } });
+      merge('K10:R11', bank, { font: { size: 8.5 }, align: { vertical: 'top', wrapText: true } });
+      if (st === 'standard') box('K9:R11', 'FF475569');
+      else eachCell('K9:K11', function (x) { x.border = { left: { style: 'thin', color: { argb: LINE } } }; });
+    }
+    h(13, 14);
+    merge('A13:R13', '※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　対象期間：' + v.period_from + ' 〜 ' + v.period_to, { font: { size: 8, color: { argb: 'FF334155' } } });
+
+    // ---- 明細 ----
+    var HR = 14; h(HR, 19);
+    var cols = [['A', 'A', 'No'], ['B', 'H', '品　目'], ['I', 'J', '数　量'], ['K', 'L', '単　位'], ['M', 'O', '単　価'], ['P', 'R', '金　額']];
+    cols.forEach(function (c2) {
+      var rg = c2[0] + HR + ':' + c2[1] + HR;
+      var o = { font: { bold: true, size: 9, color: { argb: st === 'color' ? WHITE : (st === 'simple' ? C : INK) } }, align: { horizontal: c2[2] === '品　目' ? 'left' : 'center', indent: c2[2] === '品　目' ? 1 : 0 } };
+      if (st === 'color') o.fill = C; if (st === 'standard') o.fill = L;
+      if (c2[0] === c2[1]) put(c2[0] + HR, c2[2], o); else merge(rg, c2[2], o);
+    });
+    if (st === 'standard') grid('A' + HR + ':R' + HR, 'FF94A3B8');
+    if (st === 'simple') under('A' + HR + ':R' + HR, C, 'medium');
+    var lines = v.lines || [], n = Math.max(lines.length, st === 'color' ? 20 : 12), row = HR + 1, rowH = st === 'color' ? 15.5 : 18;
+    for (var i = 0; i < n; i++, row++) {
+      var l = lines[i]; h(row, rowH);
+      var zebra = st === 'color' && i % 2 === 0 ? L : null, base = { font: { size: 9 } };
+      var o = function (x) { var y = Object.assign({}, base, x || {}); if (zebra) y.fill = zebra; return y; };
+      var q = l ? Number(l.qty) : null;
+      put('A' + row, l || st === 'color' ? i + 1 : null, o({ align: { horizontal: 'center' }, font: { size: 8.5, color: { argb: st === 'color' && !l ? GRAY : INK } } }));
+      merge('B' + row + ':H' + row, l ? l.item + (l.tax === '対象外' ? '　※' : (l.tax === '最後' ? '　※※' : '')) : null, o({ align: { shrinkToFit: true, indent: 1 } }));
+      merge('I' + row + ':J' + row, q, o({ fmt: q !== null && q % 1 !== 0 ? '#,##0.0#' : NUM, align: { horizontal: 'right' } }));
+      merge('K' + row + ':L' + row, l ? l.unit : null, o({ align: { horizontal: 'center' } }));
+      merge('M' + row + ':O' + row, l ? Number(l.price) : null, o({ fmt: NUM, align: { horizontal: 'right' } }));
+      merge('P' + row + ':R' + row, l ? { formula: 'ROUND(I' + row + '*M' + row + ',0)', result: Math.round(l.amount) } : null, o({ fmt: NUM, align: { horizontal: 'right' } }));
+      if (st === 'standard') grid('A' + row + ':R' + row, 'FF94A3B8');
+      if (st === 'color') under('A' + row + ':R' + row, WHITE);
+      if (st === 'simple') under('A' + row + ':R' + row, 'FFE2E8F0');
+    }
+
+    // ---- 合計 ----
+    var tr = row; h(tr, 13); h(tr + 1, 20);
+    var lab = { font: { size: 7.5, color: { argb: 'FF334155' } } }, val = { font: { size: 10.5, bold: true }, fmt: YEN, align: { horizontal: 'right' } };
+    var parts = [['消費税対象（10%）', t.taxable], ['消費税（10%）', t.tax]];
+    if (t.later) parts.push(['消費税は最終回 ※※', t.later]);
+    parts.push(['対象外 ※', t.exempt], ['総　額', v.total]);
+    var start = st === 'color' ? 4 : 1, span = Math.floor((18 - start + 1) / parts.length), letters = 'ABCDEFGHIJKLMNOPQR';
+    if (st === 'color') merge('A' + tr + ':C' + (tr + 1), '合　計', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+    parts.forEach(function (p, k) {
+      var c1 = start + k * span, c2 = k === parts.length - 1 ? 18 : c1 + span - 1, a1 = letters[c1 - 1], a2 = letters[c2 - 1];
+      var last = k === parts.length - 1, bg = st === 'standard' ? null : (st === 'simple' && last ? C : L);
+      var ink = st === 'simple' && last ? WHITE : INK;
+      merge(a1 + tr + ':' + a2 + tr, p[0], Object.assign({}, lab, { font: Object.assign({}, lab.font, { color: { argb: st === 'simple' && last ? WHITE : 'FF334155' } }) }, bg ? { fill: bg } : {}));
+      merge(a1 + (tr + 1) + ':' + a2 + (tr + 1), p[1], Object.assign({}, val, { font: Object.assign({}, val.font, { color: { argb: ink }, size: last ? 12 : 10.5 }) }, bg ? { fill: bg } : {}));
+      if (st === 'standard') box(a1 + tr + ':' + a2 + (tr + 1), 'FF94A3B8');
+      if (st === 'simple') eachCell(a1 + tr + ':' + a2 + (tr + 1), function (x, rr, cc, s, en) { if (cc === en.col && !last) x.border = { right: { style: 'thick', color: { argb: WHITE } } }; });
+    });
+    var nr = tr + 2, notes = [];
+    if (t.exempt) notes.push('※印は消費税の対象外です。');
+    if (t.later) notes.push('※※印の消費税は、最終回にまとめてご請求します。');
+    if ((v.lines || []).some(function (l2) { return l2.tax === '消費税'; })) notes.push('「消費税（出来高分まとめて）」は、これまでの出来高の消費税をまとめたものです。');
+    h(nr, 14); merge('A' + nr + ':R' + nr, notes.join('　'), { font: { size: 8 } });
+
+    // ---- 備考 ----
+    var br = nr + 1; h(br, 16); h(br + 1, 16); h(br + 2, 16);
+    if (st === 'color') {
+      merge('A' + br + ':C' + br, '備　考', { font: { bold: true, size: 9, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('A' + (br + 1) + ':R' + (br + 2), v.note || '', { align: { vertical: 'top', wrapText: true } });
+    } else {
+      merge('A' + br + ':R' + (br + 2), '備　考\n' + (v.note || ''), { font: { size: 9, bold: false }, align: { vertical: 'top', wrapText: true, indent: 1 } });
+      if (st === 'standard') box('A' + br + ':R' + (br + 2), 'FF475569');
+    }
+
+    // ---- 会社名・ロゴ・社印 ----
+    var fr = br + 4; h(fr - 1, 10);
+    var px = W.map(function (w) { return Math.floor(w * 7 + 5); });          // 列の幅（だいたいの画素）
+    var colAt = function (c0, dx) { var c = c0; while (dx > px[c] && c < px.length - 1) { dx -= px[c]; c++; } return c + dx / px[c]; };
+    var C0 = 8, brandH = 56;                                                  // 会社の欄は I 列から
+    for (var k2 = 0; k2 < 3; k2++) h(fr + k2, 15);                             // ロゴの行（3行 = 約60px）
+    var logoW = 0;
+    if (lk.logo) {
+      var sz = await imgSize(lk.logo), lh = brandH, lw = Math.round(sz.w * lh / sz.h); if (lw > 260) { lw = 260; lh = Math.round(sz.h * lw / sz.w); }
+      ws.addImage(wb.addImage({ base64: lk.logo, extension: 'png' }), { tl: { col: C0, row: fr - 1 + (3 - lh / 20) / 2 }, ext: { width: lw, height: lh }, editAs: 'oneCell' });
+      logoW = lw;
+    } else {
+      merge(letters[C0] + fr + ':R' + (fr + 2), f.company_name || '', { font: { bold: true, size: 14, color: { argb: st === 'standard' ? INK : C } } });
+      logoW = Math.min(260, ((f.company_name || '').length || 4) * 19);
+    }
+    if (lk.seal) {
+      var sp = SEAL_PX[lk.sealSize];
+      ws.addImage(wb.addImage({ base64: lk.seal, extension: 'png' }), { tl: { col: colAt(C0, logoW - sp * 0.25), row: fr - 1 + (60 - sp) / 40 }, ext: { width: sp, height: sp }, editAs: 'oneCell' });
+    }
+    var ar = fr + 3, addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(),
+      ((f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean);
+    addr.forEach(function (s, k3) { h(ar + k3, 13); merge(letters[C0] + (ar + k3) + ':R' + (ar + k3), s, { font: { size: 8.5 } }); });
+    ws.pageSetup.printArea = 'A1:R' + (ar + addr.length);
     var buf = await wb.xlsx.writeBuffer();
     return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
