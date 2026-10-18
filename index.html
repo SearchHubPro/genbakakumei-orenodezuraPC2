@@ -2027,6 +2027,14 @@ var INV = (function () {
   function imgSize(src) {
     return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); }; im.onerror = function () { ok({ w: 1, h: 1 }); }; im.src = src; });
   }
+  // Excel：PDF と同じ見た目（標準・カラー・シンプル）で、A4 1枚にちょうど収まるように作る。金額は式（数量×単価）
+  function imgSize(src) {
+    return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); }; im.onerror = function () { ok({ w: 1, h: 1 }); }; im.src = src; });
+  }
+  // Excel：PDF と同じ見た目（標準・カラー・シンプル）で、A4 1枚にちょうど収まるように作る。金額は式（数量×単価）
+  function imgSize(src) {
+    return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); }; im.onerror = function () { ok({ w: 1, h: 1 }); }; im.src = src; });
+  }
   async function makeXlsx(v) {
     await loadLib('xls', function () { return !!window.ExcelJS; });
     var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), lk = look(), col = COLORS[lk.color], st = lk.style;
@@ -2155,24 +2163,30 @@ var INV = (function () {
 
     // ---- 会社名・ロゴ・社印 ----
     var fr = br + 4; h(fr - 1, 10);
-    var px = W.map(function (w) { return Math.floor(w * 7 + 5); });          // 列の幅（だいたいの画素）
-    var colAt = function (c0, dx) { var c = c0; while (dx > px[c] && c < px.length - 1) { dx -= px[c]; c++; } return c + dx / px[c]; };
-    var C0 = 8, brandH = 56;                                                  // 会社の欄は I 列から
-    for (var k2 = 0; k2 < 3; k2++) h(fr + k2, 15);                             // ロゴの行（3行 = 約60px）
-    var logoW = 0;
+    // 画像の位置：ExcelJS に列・行の小数で渡すと、列の中のずれが数画素にしかならず社印が左にずれた。
+    // 列・行の番号と、その中のずれ（EMU：1画素=9525、1pt=12700）をそのまま渡す
+    var px = W.map(function (w) { return Math.floor(w * 7 + 5); });          // 列の幅（画素）
+    var C0 = 8, BR = 4, RH = 15;                                              // 会社の欄は I 列から。ロゴの行は 4行×15pt（= 80px）
+    var at = function (dx, dyPx) {                                          // 画素の位置 → 列・行と、その中のずれ（EMU）
+      var c = C0; while (c < px.length - 1 && dx >= px[c]) { dx -= px[c]; c++; }
+      var pt = dyPx * 0.75, r0 = fr - 1; while (pt >= RH) { pt -= RH; r0++; }
+      return { nativeCol: c, nativeColOff: Math.round(dx * 9525), nativeRow: r0, nativeRowOff: Math.round(pt * 12700) };
+    };
+    for (var k2 = 0; k2 < BR; k2++) h(fr + k2, RH);
+    var boxH = BR * RH / 0.75, logoW = 0;
     if (lk.logo) {
-      var sz = await imgSize(lk.logo), lh = brandH, lw = Math.round(sz.w * lh / sz.h); if (lw > 260) { lw = 260; lh = Math.round(sz.h * lw / sz.w); }
-      ws.addImage(wb.addImage({ base64: lk.logo, extension: 'png' }), { tl: { col: C0, row: fr - 1 + (3 - lh / 20) / 2 }, ext: { width: lw, height: lh }, editAs: 'oneCell' });
+      var sz = await imgSize(lk.logo), lh = 56, lw = Math.round(sz.w * lh / sz.h); if (lw > 260) { lw = 260; lh = Math.round(sz.h * lw / sz.w); }
+      ws.addImage(wb.addImage({ base64: lk.logo, extension: 'png' }), { tl: at(0, (boxH - lh) / 2), ext: { width: lw, height: lh }, editAs: 'oneCell' });
       logoW = lw;
     } else {
-      merge(letters[C0] + fr + ':R' + (fr + 2), f.company_name || '', { font: { bold: true, size: 14, color: { argb: st === 'standard' ? INK : C } } });
+      merge(letters[C0] + fr + ':R' + (fr + BR - 1), f.company_name || '', { font: { bold: true, size: 14, color: { argb: st === 'standard' ? INK : C } } });
       logoW = Math.min(260, ((f.company_name || '').length || 4) * 19);
     }
     if (lk.seal) {
       var sp = SEAL_PX[lk.sealSize];
-      ws.addImage(wb.addImage({ base64: lk.seal, extension: 'png' }), { tl: { col: colAt(C0, logoW - sp * 0.25), row: fr - 1 + (60 - sp) / 40 }, ext: { width: sp, height: sp }, editAs: 'oneCell' });
+      ws.addImage(wb.addImage({ base64: lk.seal, extension: 'png' }), { tl: at(Math.max(0, logoW - sp * 0.45), (boxH - sp) / 2), ext: { width: sp, height: sp }, editAs: 'oneCell' });
     }
-    var ar = fr + 3, addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(),
+    var ar = fr + BR, addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(),
       ((f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean);
     addr.forEach(function (s, k3) { h(ar + k3, 13); merge(letters[C0] + (ar + k3) + ':R' + (ar + k3), s, { font: { size: 8.5 } }); });
     ws.pageSetup.printArea = 'A1:R' + (ar + addr.length);
