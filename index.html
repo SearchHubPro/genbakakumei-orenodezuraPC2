@@ -1345,6 +1345,10 @@
   #inv .iv-list { border-top: 1px solid #e2e8f0; }
   #inv .iv-item { border-bottom: 1px solid #e2e8f0; padding: 10px 0; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
   #inv .iv-item .m { flex: 1 1 220px; }
+  #inv .iv-item .iv-acts { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+  #inv .iv-item .iv-acts .iv-void { margin-left: auto; }
+  #inv .iv-item .iv-io { flex: 1 1 100%; }
+  #inv .iv-item .iv-io:empty { display: none; }
   #inv .iv-item .m b { font-size: 15px; }
   #inv .iv-item .m small { display: block; color: #64748b; font-size: 12px; }
   #inv .iv-item.void { opacity: .45; }
@@ -1505,6 +1509,9 @@ var INV = (function () {
     return raw;
   }
   function touch() { return ('ontouchstart' in window) || navigator.maxTouchPoints > 0; }
+  // 親方デスクかどうか。タッチできるかでは決めない（タッチ画面でないパソコンでも「タッチできる」と答えることがあり、保存できなくなった）
+  function desk() { return !document.querySelector('.nav-item[onclick="INV.open()"]'); }
+  function canShareFile() { try { return !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] })); } catch (err) { return false; } }
 
   async function api(path, opt) {
     opt = opt || {};
@@ -1625,7 +1632,7 @@ var INV = (function () {
       + '<div class="iv-btns" style="margin-bottom:12px"><button class="iv-btn sub sm" type="button" onclick="INV.addLine()">＋ 行を足す</button></div>'
       + '<div id="iv-sum"></div>'
       + '<label style="margin-top:12px">備考（請求書に出ます）</label><textarea id="iv-note" oninput="INV.meta()">' + e(d.note) + '</textarea>'
-      + '<div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.issue()">発行して ' + (touch() ? 'PDF' : 'PDF・Excel') + ' を作る</button><button class="iv-btn sub" type="button" onclick="INV.reset()">やり直す</button></div>'
+      + '<div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.issue()">発行して ' + (desk() ? 'PDF・Excel' : 'PDF') + ' を作る</button><button class="iv-btn sub" type="button" onclick="INV.reset()">やり直す</button></div>'
       + '<div id="iv-out"></div></div>';
     return h;
   }
@@ -1696,11 +1703,11 @@ var INV = (function () {
     return '<div class="iv-card"><div class="iv-list">' + S.invoices.map(function (v) {
       return '<div class="iv-item' + (v.status === 'void' ? ' void' : '') + '"><div class="m"><b>' + e(v.client_name) + '</b>　' + yen(v.total)
         + '<small>' + e(v.month_label) + '　発行日 ' + e(v.issue_date) + '　期間 ' + e(v.period_from) + '〜' + e(v.period_to) + (v.status === 'void' ? '　<b>取り消し済み</b>' : '') + '</small></div>'
-        + '<button class="iv-btn sm" type="button" onclick="INV.pdfOf(' + v.id + ')">PDF</button>'
-        + (touch() ? '' : '<button class="iv-btn sub sm" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel</button>')
-        + (v.status === 'void' ? '' : '<button class="iv-btn warn sm" type="button" onclick="INV.voidOf(' + v.id + ')">取り消す</button>')
-        + '</div>';
-    }).join('') + '</div><div id="iv-out"></div></div>';
+        + '<div class="iv-acts"><button class="iv-btn sm" type="button" onclick="INV.pdfOf(' + v.id + ')">PDF</button>'
+        + (desk() ? '<button class="iv-btn sub sm" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel</button>' : '')
+        + (v.status === 'void' ? '' : '<button class="iv-btn warn sm iv-void" type="button" onclick="INV.voidOf(' + v.id + ')">取り消す</button>')
+        + '</div><div class="iv-io" id="iv-io-' + v.id + '"></div></div>';
+    }).join('') + '</div></div>';
   }
 
   function setView() {
@@ -1988,9 +1995,9 @@ var INV = (function () {
       + table + tot + (notes.length ? '<div class="p-notes">' + notes.map(e).join('<br>') + '</div>' : '') + note
       + '<div class="p-foot">' + brand + '<div class="p-addr">' + addr + '</div></div></div>';
   }
-  function baseName(v) { return (v.month_label || '') + '請求書' + v.client_name; }
-  async function makePdf(v) {
-    var out = $('iv-out'); if (out) out.innerHTML = '<p class="iv-note">PDF を作っています…</p>';
+  function baseName(v) { return (v.month_label || '') + '請求書(' + v.client_name + ')'; }
+  async function makePdf(v, outId) {
+    var out = $(outId || 'iv-out'); if (out) out.innerHTML = '<p class="iv-note">PDF を作っています…</p>';
     try {
       await loadLib('h2c', function () { return !!window.html2canvas; });
       await loadLib('pdf', function () { return !!window.jspdf; });
@@ -2011,8 +2018,7 @@ var INV = (function () {
       }
       paper.innerHTML = '';
       S.file = { blob: pdf.output('blob'), name: baseName(v) + '.pdf', type: 'application/pdf', inv: v };
-      if (out) out.innerHTML = '<p class="iv-note">PDF ができました：' + e(S.file.name) + '</p><div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.send()">送る・保存する</button><button class="iv-btn sub" type="button" onclick="INV.view()">開いて見る</button>'
-        + (touch() ? '' : '<button class="iv-btn sub" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel でも出す</button>') + '</div>';
+      if (out) out.innerHTML = '<p class="iv-note">PDF ができました：' + e(S.file.name) + '</p><div class="iv-btns">' + fileBtns(v) + '</div>';
     } catch (err) { if (out) out.innerHTML = '<p class="iv-alert">PDF を作れませんでした：' + e(err.message) + '</p>'; }
   }
 
@@ -2086,14 +2092,27 @@ var INV = (function () {
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
   }
-  function send() {
+  function fileBtns(v) {                     // PDF ができたあとのボタン
+    if (desk()) return '<button class="iv-btn ok" type="button" onclick="INV.save()">保存する</button><button class="iv-btn sub" type="button" onclick="INV.view()">開いて見る</button>'
+      + '<button class="iv-btn sub" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel でも出す</button>'
+      + (canShareFile() ? '<button class="iv-btn sub" type="button" onclick="INV.share()">送る</button>' : '');
+    return '<button class="iv-btn ok" type="button" onclick="INV.send()">送る・保存する</button><button class="iv-btn sub" type="button" onclick="INV.view()">開いて見る</button>'
+      + '<button class="iv-btn sub" type="button" onclick="INV.save()">ダウンロード</button>';
+  }
+  function save() { if (S.file) download(S.file.blob, S.file.name); }
+  function share() {
     if (!S.file) return;
     var file = new File([S.file.blob], S.file.name, { type: S.file.type });
-    if (touch() && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: S.file.name }).catch(function () {}); return; }
-    download(S.file.blob, S.file.name);
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: S.file.name }).catch(function () {}); return true; }
+    return false;
   }
+  function send() { if (!share()) save(); }     // 親方モバイル：共有の画面（使えなければダウンロード）
   function view() { if (S.file) window.open(URL.createObjectURL(S.file.blob), '_blank'); }
-  async function pdfOf(id) { var v = S.invoices.find(function (x) { return x.id === id; }); if (v) await makePdf(v); }
+  async function pdfOf(id) {                   // 出した請求書：結果はその請求書のすぐ下に出す
+    var v = S.invoices.find(function (x) { return x.id === id; }); if (!v) return;
+    document.querySelectorAll('#inv .iv-io').forEach(function (x) { x.innerHTML = ''; });
+    await makePdf(v, 'iv-io-' + id);
+  }
   async function voidOf(id) {
     var v = S.invoices.find(function (x) { return x.id === id; });
     if (!v || !confirm(v.client_name + '（' + v.month_label + '・' + yen(v.total) + '）の請求書を取り消しますか？\n記録は「取り消し済み」として残り、出来高や精算の「前回まで」からは外れます。')) return;
@@ -2154,7 +2173,7 @@ var INV = (function () {
   function tab(t) { if (t !== S.tab) { S.done = null; S.lk = null; } S.tab = t; render(); }
 
   return { open: open, close: close, tab: tab, build: build, pick: pick, edit: edit, addLine: addLine, delLine: delLine, meta: meta, reset: reset, again: again, issue: issue,
-    setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
+    setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, save: save, share: share, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
     saveProfile: saveProfile, setLook: setLook, pickImg: pickImg, saveLook: saveLook, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals, _fmtZip: fmtZip, _fmtTel: fmtTel };
 })();
 </script>
