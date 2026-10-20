@@ -232,7 +232,7 @@
             <div class="form-group" style="flex:1;"><label>名前</label><select id="editName"></select></div>
             <div class="form-group" style="flex:1;"><label>現場名</label><select id="editSite" onchange="syncEditClientCompany()"></select></div>
         </div>
-        <div class="form-group"><label>応援先社名</label><input type="text" id="editClientCompany" placeholder="現場マスターに紐づく社名が自動反映されます"></div>
+        <div class="form-group"><label>応援先社名</label><input type="text" id="editClientCompany" list="companyList" autocomplete="off" placeholder="現場マスターに紐づく社名が自動反映されます"></div>
         <div class="form-group"><label>備考</label><input type="text" id="editOthers"></div>
 
         <h4 style="margin-bottom: 8px; color: #1a365d; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">経費</h4>
@@ -259,7 +259,7 @@
         <div style="background:#f8fafc; padding:16px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:16px;">
             <label style="font-size:13px; font-weight:bold; color:#1a365d;"><i class="fas fa-building"></i> 新しい現場の追加</label>
             <input type="text" id="newSite" placeholder="現場名 (例: 梅田第2ビル)" style="width:100%; padding:10px; border:1px solid #cbd5e0; border-radius:6px; margin-top:8px; box-sizing:border-box; font-weight:bold;">
-            <input type="text" id="newClientCompany" placeholder="応援先社名 (例: 〇〇工務店 ※空欄なら自社現場)" style="width:100%; padding:10px; border:1px solid #cbd5e0; border-radius:6px; margin-top:8px; box-sizing:border-box; font-weight:bold; color: #c2410c;">
+            <input type="text" id="newClientCompany" list="companyList" autocomplete="off" placeholder="応援先社名 (例: 〇〇工務店 ※空欄なら自社現場)" style="width:100%; padding:10px; border:1px solid #cbd5e0; border-radius:6px; margin-top:8px; box-sizing:border-box; font-weight:bold; color: #c2410c;">
             <button class="btn btn-green" style="width:100%; margin-top:12px;" onclick="addMaster('addSite', this)">現場を追加</button>
         </div>
         <div style="background:#fff5f5; padding:16px; border-radius:8px; border:1px solid #fed7d7;">
@@ -2430,5 +2430,38 @@ var NEWS = (function () {
 </script>
 <!-- ===================== お知らせ（news）ここまで ===================== -->
 
+<!-- ===================== 応援先の候補（company list）ここから ===================== -->
+<datalist id="companyList"></datalist>
+<script>
+// 応援先社名の欄を押すと、今までの応援先・請求先の会社名を候補に出す（打ち込みもできる）
+var COMPANY_LIST = (function () {
+  var extra = null;                                   // 請求書の「宛先の会社」で足した会社（1回だけ読む）
+  async function loadExtra() {
+    if (extra) return;
+    extra = [];
+    try {
+      var res = await fetch(SUPABASE_URL + '/billing_clients?select=name', { headers: supabaseHeaders });
+      if (res.ok) extra = (await res.json()).map(function (x) { return x.name; });
+    } catch (err) { /* 読めなくても現場の会社名だけで出す */ }
+  }
+  async function refresh() {
+    await loadExtra();
+    var set = {};
+    var add = function (v) { v = String(v || '').trim(); if (v) set[v] = 1; };
+    (globalData.sites || []).forEach(function (s) { add(s.company); add(s.bill_to); });
+    (globalData.attendance || []).forEach(function (r) { add(r.clientCompany); });
+    (extra || []).forEach(add);
+    var dl = document.getElementById('companyList'); if (!dl) return;
+    dl.innerHTML = '';
+    Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'ja'); }).forEach(function (n) { var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+  }
+  return { refresh: refresh };
+})();
+document.addEventListener('focusin', function (ev) {
+  var t = ev.target;
+  if (t && (t.id === 'newClientCompany' || t.id === 'editClientCompany')) { t.setAttribute('list', 'companyList'); t.setAttribute('autocomplete', 'off'); COMPANY_LIST.refresh(); }
+});
+</script>
+<!-- ===================== 応援先の候補（company list）ここまで ===================== -->
 </body>
 </html>
