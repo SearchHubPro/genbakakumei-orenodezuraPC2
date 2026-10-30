@@ -1314,6 +1314,12 @@
   #inv .iv-tabs { display: flex; gap: 6px; padding: 10px 14px 0; max-width: 960px; margin: 0 auto; }
   #inv .iv-tab { flex: 1; border: 0; border-radius: 8px 8px 0 0; padding: 10px 4px; font-weight: bold; font-size: 14px; background: #dbe3ec; color: #4a5568; cursor: pointer; }
   #inv .iv-tab.on { background: #fff; color: #1f3b5c; }
+  #inv .iv-ptab { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; min-width: 0 !important; }
+  #inv .iv-ptab th, #inv .iv-ptab td { border-bottom: 1px solid #e2e8f0; padding: 6px 4px; text-align: left; white-space: normal; }
+  #inv .iv-ptab td.r { text-align: right; white-space: nowrap; }
+  #inv .iv-sum { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: flex-end; font-size: 13px; }
+  #inv .iv-sum b { margin-left: 6px; }
+  #inv .iv-sum .big { font-size: 16px; font-weight: bold; }
   #inv .iv-body { max-width: 960px; margin: 0 auto; padding: 0 14px calc(40px + env(safe-area-inset-bottom)); }
   #inv .iv-card { background: #fff; border-radius: 0 0 10px 10px; padding: 14px; margin-bottom: 14px; }
   #inv .iv-card + .iv-card { border-radius: 10px; }
@@ -1460,6 +1466,7 @@
   <div class="iv-tabs">
     <button class="iv-tab on" type="button" data-t="make" onclick="INV.tab('make')">作る</button>
     <button class="iv-tab" type="button" data-t="list" onclick="INV.tab('list')">出した請求書</button>
+    <button class="iv-tab" type="button" data-t="pay" onclick="INV.tab('pay')">支払通知</button>
     <button class="iv-tab" type="button" data-t="set" onclick="INV.tab('set')">設定</button>
   </div>
   <div class="iv-body" id="iv-body"></div>
@@ -1472,7 +1479,7 @@
 //                          人工精算→最終精算（毎月は常用、最後は請負−今までの人工と経費）
 //   使うもの（それぞれの画面にあるもの）：SUPABASE_URL, supabaseHeaders（キー＋PIN入り）, myLicense
 var INV = (function () {
-  var S = { tab: 'make', profile: null, clients: [], sites: [], invoices: [], draft: null, file: null, sel: null, done: null, lk: null };
+  var S = { tab: 'make', profile: null, clients: [], sites: [], invoices: [], draft: null, file: null, sel: null, done: null, lk: null, workers: [], psel: null, pay: null };
   var LIB = {
     h2c: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
     pdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
@@ -1547,9 +1554,10 @@ var INV = (function () {
       api('billing_profile?select=*'),
       api('billing_clients?select=*&order=name'),
       api('sites?select=id,name,company,bill_to,bill_unit_price,bill_method,contract_amount,contract_tax,tax_timing&order=name'),
-      api('invoices?select=*&order=issue_date.desc,id.desc')
+      api('invoices?select=*&order=issue_date.desc,id.desc'),
+      api('workers?select=name,wage,closing,pay_date,tax_type&order=id').catch(function () { return []; })
     ]);
-    S.profile = r[0][0] || null; S.clients = r[1] || []; S.sites = r[2] || []; S.invoices = r[3] || [];
+    S.profile = r[0][0] || null; S.clients = r[1] || []; S.sites = r[2] || []; S.invoices = r[3] || []; S.workers = r[4] || [];
   }
   function clientNames() {
     var set = {};
@@ -1602,6 +1610,7 @@ var INV = (function () {
     var b = $('iv-body');
     if (S.tab === 'make') b.innerHTML = makeView();
     else if (S.tab === 'list') b.innerHTML = listView();
+    else if (S.tab === 'pay') b.innerHTML = payView();
     else b.innerHTML = setView();
     if (S.tab === 'make' && S.draft) drawLines();
     if (S.tab === 'set') drawPrev();
@@ -1957,7 +1966,8 @@ var INV = (function () {
   }
   function paperHtml(v, lk) {
     lk = lk || look();
-    var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), col = COLORS[lk.color], st = lk.style;
+    var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), col = COLORS[lk.color], st = lk.style, pay = v.kind === 'pay';
+    if (pay) { r = { name: v.worker, honorific: '様', person: '' }; f = Object.assign({}, f, { bank: v.pay_date ? '支払日：' + v.pay_date : '' }); }
     var minRows = st === 'color' ? 20 : 12;
     var rows = (v.lines || []).map(function (l, i) {
       var mark = l.tax === '対象外' ? '　※' : (l.tax === '最後' ? '　※※' : '');
@@ -1965,24 +1975,26 @@ var INV = (function () {
     });
     for (var k = rows.length; k < minRows; k++) rows.push('<tr><td class="c">' + (st === 'color' ? k + 1 : '&nbsp;') + '</td><td></td><td></td><td></td><td></td><td></td></tr>');
     var notes = [];
-    if (t.exempt) notes.push('※印は消費税の対象外です。');
+    if (t.exempt && !pay) notes.push('※印は消費税の対象外です。');
     if (t.later) notes.push('※※印の消費税は、最終回にまとめてご請求します。');
     if ((v.lines || []).some(function (l) { return l.tax === '消費税'; })) notes.push('「消費税（出来高分まとめて）」は、これまでの出来高の消費税をまとめたものです。');
-    var to = e(r.name) + '　' + e(r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : r.honorific));
-    var head = '<div class="p-head"><div>発行日：' + e(jpDate(v.issue_date)) + '</div><div class="p-title">請求書</div></div>'
+    var to = pay ? e(r.name) + '　様' : e(r.name) + '　' + e(r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : r.honorific));
+    var head = '<div class="p-head"><div>発行日：' + e(jpDate(v.issue_date)) + '</div><div class="p-title">' + (pay ? '支払通知書' : '請求書') + '</div></div>'
       + '<div class="p-to">' + (r.postal ? '〒' + e(fmtZip(r.postal)) + '<br>' : '') + (r.address ? e(r.address) + '<br>' : '') + '<span class="nm">' + to + '</span></div>';
     var table = '<table><colgroup><col style="width:40px"><col><col style="width:70px"><col style="width:58px"><col style="width:96px"><col style="width:120px"></colgroup><thead><tr><th>No</th><th>品　目</th><th>数　量</th><th>単　位</th><th>単　価</th><th>金　額</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
     var mid, tot, note;
     if (st === 'color') {
-      mid = '<div style="font-size:12px;margin-top:22px">下記の通りご請求申し上げます。</div><div class="p-mid" style="margin-top:4px"><div class="p-amt"><div class="lab">ご請求金額</div><div class="v">' + e(yen(v.total)) + '</div></div>'
-        + '<div class="p-bankw"><div class="lab">振込先</div><div class="p-bank">' + e(f.bank) + '</div></div></div>';
+      mid = '<div style="font-size:12px;margin-top:22px">' + (pay ? '下記の通りお支払いいたします。' : '下記の通りご請求申し上げます。') + '</div><div class="p-mid" style="margin-top:4px"><div class="p-amt"><div class="lab">' + (pay ? 'お支払金額' : 'ご請求金額') + '</div><div class="v">' + e(yen(v.total)) + '</div></div>'
+        + '<div class="p-bankw"><div class="lab">' + (pay ? 'お支払日' : '振込先') + '</div><div class="p-bank">' + e(pay ? (v.pay_date || '') : f.bank) + '</div></div></div>';
       var side = (t.later ? '<div><small>消費税は最終回 ※※</small><b>' + e(yen(t.later)) + '</b></div>' : '') + '<div><small>対象外 ※</small><b>' + e(yen(t.exempt)) + '</b></div><div><small>総　額</small><b>' + e(yen(v.total)) + '</b></div>';
-      tot = '<div class="p-tot"><div class="lab">合　計</div><div><small>消費税対象（10%）</small><b>' + e(yen(t.taxable)) + '</b></div><div><small>消費税（10%）</small><b>' + e(yen(t.tax)) + '</b></div><div class="side">' + side + '</div></div>';
+      if (pay) tot = '<div class="p-tot"><div class="lab">合　計</div><div><small>日当（' + (v.taxex ? '税別' : '税込') + '）</small><b>' + e(yen(v.pay.base)) + '</b></div><div><small>' + (v.taxex ? '消費税（10%）' : '') + '</small><b>' + (v.taxex ? e(yen(v.pay.tax)) : '') + '</b></div><div class="side"><div><small>経　費</small><b>' + e(yen(v.pay.exp)) + '</b></div><div><small>お支払金額</small><b>' + e(yen(v.total)) + '</b></div></div></div>';
+      else tot = '<div class="p-tot"><div class="lab">合　計</div><div><small>消費税対象（10%）</small><b>' + e(yen(t.taxable)) + '</b></div><div><small>消費税（10%）</small><b>' + e(yen(t.tax)) + '</b></div><div class="side">' + side + '</div></div>';
       note = '<div class="p-note"><div class="lab">備　考</div><div class="tx">' + e(v.note) + '</div></div>';
     } else {
-      mid = '<div class="p-mid"><div><div style="margin-bottom:6px">下記の通りご請求申し上げます。</div><div class="p-amt">ご請求金額（税込）<div class="v">' + e(yen(v.total)) + (st === 'standard' ? ' −' : '') + '</div></div></div>'
-        + '<div class="p-bank"><b>振込先</b>\n' + e(f.bank) + '</div></div>';
-      tot = '<div class="p-tot"><div>消費税対象（10%）<b>' + e(yen(t.taxable)) + '</b></div><div>消費税（10%）<b>' + e(yen(t.tax)) + '</b></div>'
+      mid = '<div class="p-mid"><div><div style="margin-bottom:6px">' + (pay ? '下記の通りお支払いいたします。' : '下記の通りご請求申し上げます。') + '</div><div class="p-amt">' + (pay ? 'お支払金額' : 'ご請求金額（税込）') + '<div class="v">' + e(yen(v.total)) + (st === 'standard' ? ' −' : '') + '</div></div></div>'
+        + '<div class="p-bank"><b>' + (pay ? 'お支払日' : '振込先') + '</b>\n' + e(pay ? (v.pay_date || '') : f.bank) + '</div></div>';
+      if (pay) tot = '<div class="p-tot"><div>日当（' + (v.taxex ? '税別' : '税込') + '）<b>' + e(yen(v.pay.base)) + '</b></div>' + (v.taxex ? '<div>消費税（10%）<b>' + e(yen(v.pay.tax)) + '</b></div>' : '') + '<div>経　費<b>' + e(yen(v.pay.exp)) + '</b></div><div>お支払金額<b>' + e(yen(v.total)) + '</b></div></div>';
+      else tot = '<div class="p-tot"><div>消費税対象（10%）<b>' + e(yen(t.taxable)) + '</b></div><div>消費税（10%）<b>' + e(yen(t.tax)) + '</b></div>'
         + (t.later ? '<div>消費税は最終回 ※※<b>' + e(yen(t.later)) + '</b></div>' : '') + '<div>対象外 ※<b>' + e(yen(t.exempt)) + '</b></div><div>総　額<b>' + e(yen(v.total)) + '</b></div></div>';
       note = '<div class="p-note"><b>備　考</b>\n' + e(v.note) + '</div>';
     }
@@ -1991,11 +2003,11 @@ var INV = (function () {
       + (lk.seal ? '<img class="seal" src="' + lk.seal + '" alt="" style="width:' + sp + 'px;height:' + sp + 'px;object-fit:contain;right:' + Math.round(-sp * 0.55) + 'px;top:50%;margin-top:' + Math.round(-sp / 2) + 'px">' : '') + '</div>';   // 社印はロゴ（会社名）の右端に重ねる
     var addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(), ((f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean).map(e).join('<br>');
     return '<div class="pp d-' + st + '" style="--c:' + col.c + ';--l:' + col.l + ';--t:' + col.t + '">' + head + mid
-      + '<div class="p-sub">※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　対象期間：' + e(v.period_from) + ' 〜 ' + e(v.period_to) + '</div>'
+      + '<div class="p-sub">' + (pay ? '' : '※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　') + '対象期間：' + e(v.period_from) + ' 〜 ' + e(v.period_to) + '</div>'
       + table + tot + (notes.length ? '<div class="p-notes">' + notes.map(e).join('<br>') + '</div>' : '') + note
       + '<div class="p-foot">' + brand + '<div class="p-addr">' + addr + '</div></div></div>';
   }
-  function baseName(v) { return (v.month_label || '') + '請求書(' + v.client_name + ')'; }
+  function baseName(v) { return (v.month_label || '') + (v.kind === 'pay' ? '支払通知書(' : '請求書(') + v.client_name + ')'; }
   async function makePdf(v, outId) {
     var out = $(outId || 'iv-out'); if (out) out.innerHTML = '<p class="iv-note">PDF を作っています…</p>';
     try {
@@ -2199,6 +2211,64 @@ var INV = (function () {
     catch (err) { alert('Excel を作れませんでした。\n' + err.message); }
   }
 
+  // ---------- 支払通知（子方への支払いのお知らせ。記録は残さず、その場で PDF にする） ----------
+  function workerOf(name) { return S.workers.find(function (w) { return w.name === name; }) || null; }
+  function payView() {
+    if (!S.profile || !S.profile.company_name) return '<div class="iv-card"><p class="iv-alert">先に「設定」で、自社の情報（会社名など）を入れてください。支払通知書の差出人に使います。</p><button class="iv-btn" type="button" onclick="INV.tab(\'set\')">設定を開く</button></div>';
+    if (!S.workers.length) return '<div class="iv-card"><p class="iv-alert">子方がまだ登録されていません。</p></div>';
+    var names = S.workers.map(function (w) { return w.name; });
+    if (!S.psel || names.indexOf(S.psel.worker) < 0) { var w0 = S.workers[0]; S.psel = { worker: w0.name, month: defaultMonth(w0.closing || 31) }; }
+    var w = workerOf(S.psel.worker), pr = period(S.psel.month, w.closing || 31), d = S.pay;
+    var h = '<div class="iv-card"><p class="iv-note">子方ごとに、締めた期間の出面から「支払通知書」を作ります。日当の税込・税別、締め日、支払日は子方マスターのとおりです（集計の「総支給額」と同じ金額になります）。作った記録は残りません。</p><div class="iv-row">'
+      + '<div><label>子方</label><select id="iv-pw" onchange="INV.payPick()">' + names.map(function (n) { return '<option' + (n === S.psel.worker ? ' selected' : '') + '>' + e(n) + '</option>'; }).join('') + '</select></div>'
+      + '<div><label>締めた月</label><select id="iv-pm" onchange="INV.payPick()">' + monthOptions(S.psel.month) + '</select></div></div>'
+      + '<p class="iv-note">締め日：' + e((CLOSINGS.find(function (c) { return c[0] === Number(w.closing || 31); }) || [0, w.closing + '日'])[1]) + '　期間：' + e(pr.from) + ' 〜 ' + e(pr.to) + '　日当：' + e(Number(w.wage || 0).toLocaleString('ja-JP')) + '円（' + e(w.tax_type === '税別' ? '税別' : '税込') + '）　支払日：' + e(w.pay_date || '—') + '</p>';
+    if (!d) return h + '<button class="iv-btn" type="button" onclick="INV.payBuild()">出面から明細を作る</button></div>';
+    var rows = d.lines.map(function (l) { return '<tr><td>' + e(l.item) + '</td><td class="r">' + e(num(l.qty)) + ' ' + e(l.unit) + '</td><td class="r">' + e(Math.round(l.price).toLocaleString('ja-JP')) + '</td><td class="r">' + yen(l.amount) + '</td></tr>'; }).join('');
+    h += '<div class="iv-row"><div><label>発行日</label><input type="date" id="iv-pissue" value="' + e(d.issue_date) + '" onchange="INV.payMeta()"></div>'
+      + '<div><label>ファイル名の「○月度」</label><input id="iv-plabel" value="' + e(d.month_label) + '" onchange="INV.payMeta()"></div></div>'
+      + (d.lines.length ? '<div class="iv-tw"><table class="iv-ptab"><thead><tr><th>品目</th><th>数量</th><th>単価</th><th>金額</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="iv-alert">この期間の出面がありません。月や締め日を確かめてください。</p>')
+      + '<div class="iv-sum"><div>日当（' + (d.taxex ? '税別' : '税込') + '）<b>' + yen(d.pay.base) + '</b></div>' + (d.taxex ? '<div>消費税（10%）<b>' + yen(d.pay.tax) + '</b></div>' : '') + '<div>経費<b>' + yen(d.pay.exp) + '</b></div><div class="big">お支払金額<b>' + yen(d.pay.total) + '</b></div></div>'
+      + '<label style="margin-top:12px">備考（支払通知書に出ます）</label><textarea id="iv-pnote" oninput="INV.payMeta()">' + e(d.note) + '</textarea>'
+      + '<div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.payPdf()"' + (d.lines.length ? '' : ' disabled') + '>PDF を作る</button><button class="iv-btn sub" type="button" onclick="INV.payReset()">やり直す</button></div>'
+      + '<div id="iv-pout"></div></div>';
+    return h;
+  }
+  function payPick() {
+    var n = $('iv-pw').value, m = $('iv-pm').value;
+    if (!S.psel || S.psel.worker !== n) m = defaultMonth((workerOf(n) || {}).closing || 31);   // 子方を変えたら、その子方の締めで月を選び直す
+    S.psel = { worker: n, month: m }; S.pay = null; render();
+  }
+  async function payBuild() {
+    var w = workerOf(S.psel.worker); if (!w) return;
+    var month = S.psel.month, pr = period(month, w.closing || 31), taxex = w.tax_type === '税別';
+    try {
+      var rows = await api('attendance?select=work_date,site_name,headcount,wage,gasoline,highway,parking,misc&worker_name=eq.' + encodeURIComponent(w.name) + '&work_date=gte.' + pr.from + '&work_date=lte.' + pr.to + '&order=work_date');
+      var bySite = {}, order = [], exp = { gasoline: 0, highway: 0, parking: 0, misc: 0 }, base = 0, tax = 0;
+      rows.forEach(function (r) {
+        var hc = (r.headcount === null || r.headcount === undefined || r.headcount === '') ? 1 : Number(r.headcount) || 0;
+        var wage = Number(r.wage) ? Number(r.wage) : (Number(w.wage) || 15000);       // 集計と同じ：出面の単価 → 子方マスターの日当
+        var b = wage * hc, t = taxex ? Math.floor(b * 0.1) : 0;                         // 消費税は集計と同じく1日ずつ切り捨て
+        base += b; tax += t;
+        Object.keys(exp).forEach(function (k) { exp[k] += Number(r[k]) || 0; });
+        if (!hc) return;
+        var key = (r.site_name || '（現場なし）') + '|' + wage;
+        if (!bySite[key]) { bySite[key] = { item: r.site_name || '（現場なし）', qty: 0, unit: '人工', price: wage, amount: 0, tax: '' }; order.push(key); }
+        bySite[key].qty = Math.round((bySite[key].qty + hc) * 100) / 100; bySite[key].amount += b;
+      });
+      var lines = order.map(function (k) { return bySite[k]; });
+      [['gasoline', 'ガソリン代'], ['highway', '高速代'], ['parking', '駐車場代'], ['misc', '雑費']].forEach(function (x) { if (exp[x[0]]) lines.push({ item: x[1], qty: 1, unit: '式', price: exp[x[0]], amount: exp[x[0]], tax: '' }); });
+      var e2 = exp.gasoline + exp.highway + exp.parking + exp.misc;
+      S.pay = { kind: 'pay', worker: w.name, client_name: w.name, taxex: taxex, pay_date: w.pay_date || '', issue_date: ymd(new Date()), period_from: pr.from, period_to: pr.to,
+        month_label: Number(month.slice(0, 4)) + '年' + Number(month.slice(5, 7)) + '月度', note: '', lines: lines,
+        pay: { base: base, tax: tax, exp: e2, total: base + tax + e2 }, total: base + tax + e2 };
+      render();
+    } catch (err) { alert('出面を読めませんでした。通信を確かめて、もう一度押してください。\n' + err.message); }
+  }
+  function payMeta() { var d = S.pay; if (!d) return; d.issue_date = $('iv-pissue').value || d.issue_date; d.month_label = $('iv-plabel').value; d.note = $('iv-pnote').value; }
+  function payReset() { S.pay = null; render(); }
+  async function payPdf() { if (!S.pay) return; payMeta(); S.pay.issuer = { company_name: S.profile.company_name, postal: S.profile.postal, address: S.profile.address, tel: S.profile.tel, person: S.profile.person, reg_no: S.profile.reg_no }; await makePdf(S.pay, 'iv-pout'); }
+
   // ---------- 送る・保存 ----------
   function download(blob, name) {
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -2206,7 +2276,7 @@ var INV = (function () {
   }
   function fileBtns(v) {                     // PDF ができたあとのボタン
     if (desk()) return '<button class="iv-btn ok" type="button" onclick="INV.save()">保存する</button><button class="iv-btn sub" type="button" onclick="INV.view()">開いて見る</button>'
-      + '<button class="iv-btn sub" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel でも出す</button>'
+      + (v.kind === 'pay' ? '' : '<button class="iv-btn sub" type="button" onclick="INV.xlsOf(' + v.id + ')">Excel でも出す</button>')
       + (canShareFile() ? '<button class="iv-btn sub" type="button" onclick="INV.share()">送る</button>' : '');
     return '<button class="iv-btn ok" type="button" onclick="INV.send()">送る・保存する</button><button class="iv-btn sub" type="button" onclick="INV.view()">開いて見る</button>'
       + '<button class="iv-btn sub" type="button" onclick="INV.save()">ダウンロード</button>';
@@ -2286,6 +2356,7 @@ var INV = (function () {
 
   return { open: open, close: close, tab: tab, build: build, pick: pick, edit: edit, addLine: addLine, delLine: delLine, meta: meta, reset: reset, again: again, issue: issue,
     setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, save: save, share: share, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
+    payPick: payPick, payBuild: payBuild, payMeta: payMeta, payReset: payReset, payPdf: payPdf,
     saveProfile: saveProfile, setLook: setLook, pickImg: pickImg, saveLook: saveLook, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals, _fmtZip: fmtZip, _fmtTel: fmtTel };
 })();
 </script>
