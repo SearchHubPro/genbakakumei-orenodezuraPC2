@@ -1479,7 +1479,7 @@
 //                          人工精算→最終精算（毎月は常用、最後は請負−今までの人工と経費）
 //   使うもの（それぞれの画面にあるもの）：SUPABASE_URL, supabaseHeaders（キー＋PIN入り）, myLicense
 var INV = (function () {
-  var S = { tab: 'make', profile: null, clients: [], sites: [], invoices: [], draft: null, file: null, sel: null, done: null, lk: null, workers: [], psel: null, pay: null };
+  var S = { tab: 'make', profile: null, clients: [], sites: [], invoices: [], draft: null, file: null, sel: null, done: null, lk: null, workers: [], psel: null, pay: null, pays: [], payDb: false, payDone: null };
   var LIB = {
     h2c: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
     pdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
@@ -1555,9 +1555,10 @@ var INV = (function () {
       api('billing_clients?select=*&order=name'),
       api('sites?select=id,name,company,bill_to,bill_unit_price,bill_method,contract_amount,contract_tax,tax_timing&order=name'),
       api('invoices?select=*&order=issue_date.desc,id.desc'),
-      api('workers?select=name,wage,closing,pay_date,tax_type&order=id').catch(function () { return []; })
+      api('workers?select=name,wage,closing,pay_date,tax_type&order=id').catch(function () { return []; }),
+      api('pay_notices?select=*&order=issue_date.desc,id.desc').catch(function () { return null; })
     ]);
-    S.profile = r[0][0] || null; S.clients = r[1] || []; S.sites = r[2] || []; S.invoices = r[3] || []; S.workers = r[4] || [];
+    S.profile = r[0][0] || null; S.clients = r[1] || []; S.sites = r[2] || []; S.invoices = r[3] || []; S.workers = r[4] || []; S.pays = r[5] || []; S.payDb = r[5] !== null;   // payDb：記録の表がある（18 の SQL を流した）
   }
   function clientNames() {
     var set = {};
@@ -2219,20 +2220,32 @@ var INV = (function () {
     var names = S.workers.map(function (w) { return w.name; });
     if (!S.psel || names.indexOf(S.psel.worker) < 0) { var w0 = S.workers[0]; S.psel = { worker: w0.name, month: defaultMonth(w0.closing || 31) }; }
     var w = workerOf(S.psel.worker), pr = period(S.psel.month, w.closing || 31), d = S.pay;
-    var h = '<div class="iv-card"><p class="iv-note">子方ごとに、締めた期間の出面から「支払通知書」を作ります。日当の税込・税別、締め日、支払日は子方マスターのとおりです（集計の「総支給額」と同じ金額になります）。作った記録は残りません。</p><div class="iv-row">'
+    var h = '<div class="iv-card"><p class="iv-note">子方ごとに、締めた期間の出面から「支払通知書」を作ります。日当の税込・税別、締め日、支払日は子方マスターのとおりです（集計の「総支給額」と同じ金額になります）。' + (S.payDb ? '発行すると下の「出した支払通知書」に残ります。' : '作った記録は残りません。') + '</p><div class="iv-row">'
       + '<div><label>子方</label><select id="iv-pw" onchange="INV.payPick()">' + names.map(function (n) { return '<option' + (n === S.psel.worker ? ' selected' : '') + '>' + e(n) + '</option>'; }).join('') + '</select></div>'
       + '<div><label>締めた月</label><select id="iv-pm" onchange="INV.payPick()">' + monthOptions(S.psel.month) + '</select></div></div>'
       + '<p class="iv-note">締め日：' + e((CLOSINGS.find(function (c) { return c[0] === Number(w.closing || 31); }) || [0, w.closing + '日'])[1]) + '　期間：' + e(pr.from) + ' 〜 ' + e(pr.to) + '　日当：' + e(Number(w.wage || 0).toLocaleString('ja-JP')) + '円（' + e(w.tax_type === '税別' ? '税別' : '税込') + '）　支払日：' + e(w.pay_date || '—') + '</p>';
-    if (!d) return h + '<button class="iv-btn" type="button" onclick="INV.payBuild()">出面から明細を作る</button></div>';
+    if (!d) return h + '<button class="iv-btn" type="button" onclick="INV.payBuild()">出面から明細を作る</button></div>' + payList();
     var rows = d.lines.map(function (l) { return '<tr><td>' + e(l.item) + '</td><td class="r">' + e(num(l.qty)) + ' ' + e(l.unit) + '</td><td class="r">' + e(Math.round(l.price).toLocaleString('ja-JP')) + '</td><td class="r">' + yen(l.amount) + '</td></tr>'; }).join('');
     h += '<div class="iv-row"><div><label>発行日</label><input type="date" id="iv-pissue" value="' + e(d.issue_date) + '" onchange="INV.payMeta()"></div>'
       + '<div><label>ファイル名の「○月度」</label><input id="iv-plabel" value="' + e(d.month_label) + '" onchange="INV.payMeta()"></div></div>'
       + (d.lines.length ? '<div class="iv-tw"><table class="iv-ptab"><thead><tr><th>品目</th><th>数量</th><th>単価</th><th>金額</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="iv-alert">この期間の出面がありません。月や締め日を確かめてください。</p>')
       + '<div class="iv-sum"><div>日当（' + (d.taxex ? '税別' : '税込') + '）<b>' + yen(d.pay.base) + '</b></div>' + (d.taxex ? '<div>消費税（10%）<b>' + yen(d.pay.tax) + '</b></div>' : '') + '<div>経費<b>' + yen(d.pay.exp) + '</b></div><div class="big">お支払金額<b>' + yen(d.pay.total) + '</b></div></div>'
       + '<label style="margin-top:12px">備考（支払通知書に出ます）</label><textarea id="iv-pnote" oninput="INV.payMeta()">' + e(d.note) + '</textarea>'
-      + '<div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.payPdf()"' + (d.lines.length ? '' : ' disabled') + '>PDF を作る</button><button class="iv-btn sub" type="button" onclick="INV.payReset()">やり直す</button></div>'
+      + (d.dup ? '<p class="iv-alert">この子方・この期間の支払通知書は、もう出しています（' + e(d.dup) + '）。もう一度出すと2枚になります。</p>' : '')
+      + '<div class="iv-btns"><button class="iv-btn ok" type="button" onclick="INV.payIssue()"' + (d.lines.length ? '' : ' disabled') + '>' + (S.payDb ? '発行して PDF を作る' : 'PDF を作る') + '</button><button class="iv-btn sub" type="button" onclick="INV.payReset()">やり直す</button></div>'
       + '<div id="iv-pout"></div></div>';
-    return h;
+    return h + payList();
+  }
+  function payList() {                          // 出した支払通知書
+    if (!S.payDb) return '';
+    if (!S.pays.length) return '<div class="iv-card"><h3>出した支払通知書</h3><p class="iv-note">まだ出していません。</p></div>';
+    return '<div class="iv-card"><h3>出した支払通知書</h3><div class="iv-list">' + S.pays.map(function (v) {
+      return '<div class="iv-item' + (v.status === 'void' ? ' void' : '') + '"><div class="m"><b>' + e(v.worker_name) + '</b>　' + yen(v.total)
+        + '<small>' + e(v.month_label) + '　発行日 ' + e(v.issue_date) + '　期間 ' + e(v.period_from) + '〜' + e(v.period_to) + (v.status === 'void' ? '　<b>取り消し済み</b>' : '') + '</small></div>'
+        + '<div class="iv-acts"><button class="iv-btn sm" type="button" onclick="INV.payPdfOf(' + v.id + ')">PDF</button>'
+        + (v.status === 'void' ? '' : '<button class="iv-btn warn sm iv-void" type="button" onclick="INV.payVoid(' + v.id + ')">取り消す</button>')
+        + '</div><div class="iv-io" id="iv-pio-' + v.id + '"></div></div>';
+    }).join('') + '</div></div>';
   }
   function payPick() {
     var n = $('iv-pw').value, m = $('iv-pm').value;
@@ -2262,12 +2275,45 @@ var INV = (function () {
       S.pay = { kind: 'pay', worker: w.name, client_name: w.name, taxex: taxex, pay_date: w.pay_date || '', issue_date: ymd(new Date()), period_from: pr.from, period_to: pr.to,
         month_label: Number(month.slice(0, 4)) + '年' + Number(month.slice(5, 7)) + '月度', note: '', lines: lines,
         pay: { base: base, tax: tax, exp: e2, total: base + tax + e2 }, total: base + tax + e2 };
+      var dup = S.pays.find(function (v) { return v.status === 'issued' && v.worker_name === w.name && v.period_from === pr.from && v.period_to === pr.to; });
+      S.pay.dup = dup ? dup.issue_date + ' 発行' : '';
       render();
     } catch (err) { alert('出面を読めませんでした。通信を確かめて、もう一度押してください。\n' + err.message); }
   }
   function payMeta() { var d = S.pay; if (!d) return; d.issue_date = $('iv-pissue').value || d.issue_date; d.month_label = $('iv-plabel').value; d.note = $('iv-pnote').value; }
   function payReset() { S.pay = null; render(); }
-  async function payPdf() { if (!S.pay) return; payMeta(); S.pay.issuer = { company_name: S.profile.company_name, postal: S.profile.postal, address: S.profile.address, tel: S.profile.tel, person: S.profile.person, reg_no: S.profile.reg_no }; await makePdf(S.pay, 'iv-pout'); }
+  async function payIssue() {                 // 記録に残してから PDF（表が無ければ PDF だけ）
+    var d = S.pay; if (!d || !d.lines.length) return; payMeta();
+    d.issuer = { company_name: S.profile.company_name, postal: S.profile.postal, address: S.profile.address, tel: S.profile.tel, person: S.profile.person, reg_no: S.profile.reg_no };
+    if (!S.payDb) { await makePdf(d, 'iv-pout'); var o0 = $('iv-pout'); if (o0) o0.insertAdjacentHTML('afterbegin', '<p class="iv-note">※ 記録できませんでした（出した支払通知書の表がまだありません）。PDF はこのまま使えます。</p>'); return; }
+    if (d.dup && !confirm('この子方・この期間の支払通知書はもう出しています。もう1枚出しますか？')) return;
+    var body = { license_key: myLicense, worker_name: d.worker, issue_date: d.issue_date, period_from: d.period_from, period_to: d.period_to, month_label: d.month_label, pay_date: d.pay_date,
+      tax_type: d.taxex ? '税別' : '税込', lines: d.lines.map(function (l) { return { item: l.item, qty: l.qty, unit: l.unit, price: l.price, amount: l.amount }; }),
+      base_total: d.pay.base, tax: d.pay.tax, expense_total: d.pay.exp, total: d.pay.total, note: d.note || '', issuer: d.issuer };
+    try {
+      var saved = await api('pay_notices', { method: 'POST', body: body, headers: { Prefer: 'return=representation' } });
+      S.pays.unshift(saved[0]); S.pay = null; render();          // 二重に発行しないよう、入力の画面は閉じる
+      var v = payDoc(saved[0]), out = 'iv-pio-' + saved[0].id;
+      await makePdf(v, out);
+      var o = $(out); if (o) { o.insertAdjacentHTML('afterbegin', '<p class="iv-note" style="background:#dcfce7;color:#14532d"><b>発行しました。</b></p>'); o.scrollIntoView({ block: 'nearest' }); }
+    } catch (err) { alert('発行できませんでした。\n' + err.message); }
+  }
+  function payDoc(v) {                         // 記録 → 紙に渡す形
+    return { kind: 'pay', id: v.id, worker: v.worker_name, client_name: v.worker_name, taxex: v.tax_type === '税別', pay_date: v.pay_date, issue_date: v.issue_date,
+      period_from: v.period_from, period_to: v.period_to, month_label: v.month_label, note: v.note, lines: (v.lines || []).map(function (l) { return Object.assign({ tax: '' }, l); }),
+      pay: { base: Number(v.base_total) || 0, tax: Number(v.tax) || 0, exp: Number(v.expense_total) || 0, total: Number(v.total) || 0 }, total: Number(v.total) || 0, issuer: v.issuer || {} };
+  }
+  async function payPdfOf(id) {
+    var v = S.pays.find(function (x) { return x.id === id; }); if (!v) return;
+    document.querySelectorAll('#inv .iv-io').forEach(function (x) { x.innerHTML = ''; });
+    await makePdf(payDoc(v), 'iv-pio-' + id);
+  }
+  async function payVoid(id) {
+    var v = S.pays.find(function (x) { return x.id === id; });
+    if (!v || !confirm(v.worker_name + '（' + v.month_label + '・' + yen(v.total) + '）の支払通知書を取り消しますか？\n記録は「取り消し済み」として残ります。')) return;
+    try { await api('pay_notices?id=eq.' + id, { method: 'PATCH', body: { status: 'void' }, headers: { Prefer: 'return=minimal' } }); v.status = 'void'; render(); }
+    catch (err) { alert('取り消せませんでした。\n' + err.message); }
+  }
 
   // ---------- 送る・保存 ----------
   function download(blob, name) {
@@ -2356,7 +2402,7 @@ var INV = (function () {
 
   return { open: open, close: close, tab: tab, build: build, pick: pick, edit: edit, addLine: addLine, delLine: delLine, meta: meta, reset: reset, again: again, issue: issue,
     setDek: setDek, setFin: setFin, cfgShow: cfgShow, send: send, save: save, share: share, view: view, pdfOf: pdfOf, xlsOf: xlsOf, voidOf: voidOf,
-    payPick: payPick, payBuild: payBuild, payMeta: payMeta, payReset: payReset, payPdf: payPdf,
+    payPick: payPick, payBuild: payBuild, payMeta: payMeta, payReset: payReset, payIssue: payIssue, payPdfOf: payPdfOf, payVoid: payVoid,
     saveProfile: saveProfile, setLook: setLook, pickImg: pickImg, saveLook: saveLook, addClient: addClient, saveClient: saveClient, saveSite: saveSite, _period: period, _totals: totals, _fmtZip: fmtZip, _fmtTel: fmtTel };
 })();
 </script>
