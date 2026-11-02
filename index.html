@@ -2166,6 +2166,24 @@ var INV = (function () {
     var parts = [['消費税対象（10%）', t.taxable], ['消費税（10%）', t.tax]];
     if (t.later) parts.push(['消費税は最終回 ※※', t.later]);
     parts.push(['対象外 ※', t.exempt], ['総　額', v.total]);
+    var tEnd = tr + 1, letters = 'ABCDEFGHIJKLMNOPQR';                        // 合計欄の最後の行
+    if (st === 'color') {
+      // カラーは PDF と同じ形：左に「合計」、消費税対象・消費税、右に対象外・総額（最終回の分）を縦に積む。1項目＝項目名の行＋金額の行
+      var side = parts.slice(2); tEnd = tr + side.length * 2 - 1;
+      for (var q2 = 0; q2 < side.length; q2++) { h(tr + q2 * 2, 13); h(tr + q2 * 2 + 1, 19); }
+      merge('A' + tr + ':C' + tEnd, '合　計', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      [['D', 'G', parts[0]], ['H', 'L', parts[1]]].forEach(function (g) {
+        merge(g[0] + tr + ':' + g[1] + tr, g[2][0], Object.assign({}, lab, { fill: L }));
+        merge(g[0] + (tr + 1) + ':' + g[1] + (tr + 1), g[2][1], Object.assign({}, val, { fill: L }));
+        merge(g[0] + (tr + 2) + ':' + g[1] + tEnd, null, { fill: L });
+      });
+      side.forEach(function (p, k) {
+        var r1 = tr + k * 2, last = k === side.length - 1;
+        merge('M' + r1 + ':R' + r1, p[0], Object.assign({}, lab, { fill: L }));
+        merge('M' + (r1 + 1) + ':R' + (r1 + 1), p[1], Object.assign({}, val, { font: Object.assign({}, val.font, { size: last ? 12 : 10.5 }), fill: L }));
+        if (!last) under('M' + (r1 + 1) + ':R' + (r1 + 1), WHITE, 'medium');   // 積んだ箱の間の白い線
+      });
+    } else {
     var start = st === 'color' ? 4 : 1, span = Math.floor((18 - start + 1) / parts.length), letters = 'ABCDEFGHIJKLMNOPQR';
     if (st === 'color') merge('A' + tr + ':C' + (tr + 1), '合　計', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
     parts.forEach(function (p, k) {
@@ -2177,7 +2195,8 @@ var INV = (function () {
       if (st === 'standard') box(a1 + tr + ':' + a2 + (tr + 1), 'FF94A3B8');
       if (st === 'simple') eachCell(a1 + tr + ':' + a2 + (tr + 1), function (x, rr, cc, s, en) { if (cc === en.col && !last) x.border = { right: { style: 'thick', color: { argb: WHITE } } }; });
     });
-    var nr = tr + 2, notes = [];
+    }
+    var nr = tEnd + 1, notes = [];
     if (t.exempt) notes.push('※印は消費税の対象外です。');
     if (t.later) notes.push('※※印の消費税は、最終回にまとめてご請求します。');
     if ((v.lines || []).some(function (l2) { return l2.tax === '消費税'; })) notes.push('「消費税（出来高分まとめて）」は、これまでの出来高の消費税をまとめたものです。');
