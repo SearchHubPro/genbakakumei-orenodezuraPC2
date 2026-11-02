@@ -114,6 +114,21 @@
     </style>
 </head>
 <body>
+<!-- 起動画面：白の真ん中にロゴ。画面の準備ができたら hideSplash() で消す（最低0.8秒は見せる） -->
+<div id="splash" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#fff;display:flex;align-items:center;justify-content:center;z-index:2147483000;transition:opacity .4s ease;">
+    <img src="logo.png" alt="俺の出面" style="width:70vw;max-width:420px;height:auto;">
+</div>
+<script>
+    window.__splashT0 = Date.now();
+    window.hideSplash = function() {
+        var s = document.getElementById('splash');
+        if (!s || s.getAttribute('data-h')) return;
+        s.setAttribute('data-h', '1');
+        var wait = Math.max(0, 800 - (Date.now() - window.__splashT0));
+        setTimeout(function() { s.style.opacity = '0'; s.style.pointerEvents = 'none'; setTimeout(function() { s.remove(); }, 450); }, wait);
+    };
+    setTimeout(function() { window.hideSplash(); }, 10000); // 何かで止まっても10秒で必ず消す
+</script>
 
 <div id="settingsView" style="display: none;">
     <h2 style="color: #1a73e8; margin-top:0; text-align: center;"><i class="fas fa-lock"></i> システム初期設定</h2>
@@ -394,6 +409,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         if (!myLicense || !myPin) { 
             document.getElementById('settingsView').style.display = 'block'; 
+            hideSplash();
         } else {
             checkLicenseAndBoot();
         }
@@ -428,6 +444,7 @@
                 myLicenseInfo = json[0]; // 💡 認証したライセンス情報を変数に保存！
                 lockView.style.display = 'none';
                 document.getElementById('mainView').style.display = 'block';
+                hideSplash();
                 
                 // 💡 保存された会社名をローカルストレージから確実に読み出す
                 const savedCompName = localStorage.getItem(COMP_NAME_KEY) || '親方';
@@ -443,6 +460,7 @@
     }
 
     function showErrorScreen(message) {
+        hideSplash();
         const lockView = document.getElementById('lockView');
         lockView.innerHTML = `
             <h2 style="color:#c53030;">🔒 ライセンス未有効</h2>
