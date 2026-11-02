@@ -154,7 +154,7 @@
         
         <div style="display: flex; gap: 12px;">
             <button class="btn" style="background:#ffffff; color:#333333; border: 1px solid #cbd5e0;" onclick="window.open('https://billing.stripe.com/p/login/cNi6oGaoe0AD0EI0SV4AU00', '_blank')"><i class="fas fa-credit-card"></i> 💳 サブスク解約・変更</button>
-            <button class="btn" style="background:#3182ce; color:#ffffff;" onclick="window.open('https://buy.stripe.com/eVqbJ09kagzB2MQcBD4AU0b?client_reference_id=' + myLicense, '_blank')"><i class="fas fa-user-plus"></i> 子方枠追加(+10人)</button>
+            <button class="btn" style="background:#3182ce; color:#ffffff;" onclick="window.open('https://buy.stripe.com/eVqbJ09kagzB2MQcBD4AU0b?client_reference_id=' + myLicense, '_blank')"><i class="fas fa-user-plus"></i> 子方枠追加(+5人)</button>
             
             <button class="btn btn-gray" onclick="resetLicense()"><i class="fas fa-sync-alt"></i> ⚙️ 設定リセット</button>
             <button class="btn btn-orange" onclick="openMasterModal()"><i class="fas fa-plus-circle"></i> マスター登録</button>
@@ -1141,7 +1141,7 @@
         closeModal('editModal');
     }
 
-    // 🛠️ マスター登録（現場・子方）時の埋め込み対応版 ＆ 【子方10人制限ストッパー搭載】
+    // 🛠️ マスター登録（現場・子方）時の埋め込み対応版 ＆ 【子方の人数制限ストッパー搭載】
     async function addMaster(action, btn) {
         let p = { action: action };
         if (action === 'addSite') {
@@ -1154,7 +1154,7 @@
             if(pin.length !== 4) return alert('PINコードは4桁で入力してください');
 
             // 🛑 【最強のストッパー】Supabaseの「max_subcontractors」を基準にする！
-            const maxWorkers = myLicenseInfo ? (myLicenseInfo.max_subcontractors || 10) : 10;
+            const maxWorkers = myLicenseInfo ? (myLicenseInfo.max_subcontractors || 5) : 5;
             if (globalData && globalData.workers && globalData.workers.length >= maxWorkers) {
                 alert(`🛑 これ以上登録できません！\n現在のプランの子方上限は ${maxWorkers} 人までです。\nさらに登録する場合はプランアップが必要です。`);
                 return;
