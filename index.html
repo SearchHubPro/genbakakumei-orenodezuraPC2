@@ -1676,12 +1676,12 @@ var INV = (function () {
         + (s.bill_method === 'dekidaka' ? '　消費税：' + (s.tax_timing === 'final' ? '最後にまとめて' : '毎回') : '') + '</small>';
       if (!cex) { h += '<div class="iv-site">' + head + '<p class="iv-alert" style="margin:0">請負金額が入っていません。「設定」の「現場ごとの請求のしかた」で入れてください。</p></div>'; return; }
       if (s.bill_method === 'dekidaka') {
-        if (hs.final) { h += '<div class="iv-site">' + head + '<small>100％まで請求済みです。</small></div>'; return; }
+        if (hs.final) { h += '<div class="iv-site">' + head + '<small>100％まで請求済みです。直したいときは「出した請求書」でその請求書を取り消してから作り直してください。</small></div>'; return; }
         h += '<div class="iv-site">' + head + '<small>前回までの出来高：' + num(hs.pct) + '％（請求済み ' + yen(hs.dek) + '）</small>'
           + '<div class="pct"><label style="margin:0">今回までの出来高</label><input id="' + id + '" inputmode="decimal" value="' + e(d.dek[sn] || '') + '" placeholder="' + (hs.pct ? num(hs.pct) : '30') + '" oninput="INV.setDek(\'' + id + '\')" data-site="' + e(sn) + '">％</div></div>';
       } else {
         var billed = hs.labor + hs.exp;
-        if (hs.final) { h += '<div class="iv-site">' + head + '<small>最終精算まで済んでいます。</small></div>'; return; }
+        if (hs.final) { h += '<div class="iv-site">' + head + '<small>最終精算まで済んでいます。直したいときは「出した請求書」でその請求書を取り消してから作り直してください。</small></div>'; return; }
         h += '<div class="iv-site">' + head + '<small>今までの請求：人工 ' + yen(hs.labor) + '＋経費 ' + yen(hs.exp) + '＝' + yen(billed) + '　残り ' + yen(cex - billed) + '</small>'
           + '<label class="chk"><input type="checkbox" id="' + id + '" data-site="' + e(sn) + '"' + (d.fin[sn] ? ' checked' : '') + ' onchange="INV.setFin(\'' + id + '\')">今回で最終精算にする（今月の人工・経費の代わりに、残り ' + yen(cex - billed) + ' を請求）</label></div>';
       }
