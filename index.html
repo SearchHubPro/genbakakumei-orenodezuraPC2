@@ -2119,9 +2119,12 @@ var INV = (function () {
     if (st === 'standard') edge('A6:H6', 'bottom', INK);
 
     // ---- ご請求金額・振込先 ----
-    var bank = String(f.bank || '');
+    var bank = String(f.bank || ''), bankLines = Math.max(1, bank.split('\n').length);
+    var bankPt = bankLines * F(13) * 1.75 + 3;                                // 振込先の文字が切れない高さ（Excel の游ゴシックは 1行＝文字の約1.75倍）
     if (st === 'color') {
-      h(7, P(22)); h(8, P(22)); h(9, P(22)); h(10, P(22)); h(11, P(4)); h(12, P(4));
+      // PDF と同じく、振込先の行数に合わせて欄が伸びる（1行 19.5px＋4px。最低 44px）
+      var midPt = Math.max(P(Math.max(44, bankLines * 19.5 + 4)), bankPt);
+      h(7, P(22)); h(8, P(22)); h(9, midPt / 2); h(10, midPt / 2); h(11, P(4)); h(12, P(4));
       put('A8', '下記の通りご請求申し上げます。', { font: { size: F(12) } });
       merge('A9:C10', 'ご請求金額', { font: { bold: true, size: F(15), color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
       merge('D9:H10', v.total, { font: { bold: true, size: F(24) }, fmt: YEN, align: { horizontal: 'left', indent: 1 } });
@@ -2130,7 +2133,8 @@ var INV = (function () {
     } else {
       // 左：文（25.5px）＋金額の箱、右：振込先の箱（上の文の行から箱の下まで）
       var amtPx = st === 'standard' ? [29.5, 46] : [23.5, 43], amtEnd = st === 'standard' ? 'F' : 'D', bk = st === 'standard' ? 'K' : 'O';
-      h(7, P(20)); h(8, P(25.5)); h(9, P(amtPx[0])); h(10, P(amtPx[1] / 2)); h(11, P(amtPx[1] / 2)); h(12, P(8));
+      var r11 = Math.max(P(amtPx[1] / 2), bankPt - P(amtPx[0]) - P(amtPx[1] / 2));   // 振込先が長いときは箱を下に伸ばす
+      h(7, P(20)); h(8, P(25.5)); h(9, P(amtPx[0])); h(10, P(amtPx[1] / 2)); h(11, r11); h(12, P(8));
       put('A8', '下記の通りご請求申し上げます。', { align: { vertical: 'top' } });
       merge('A9:' + amtEnd + '9', 'ご請求金額（税込）', { align: { indent: 1 } });
       merge('A10:' + amtEnd + '11', v.total, { font: { bold: true, size: F(st === 'standard' ? 24 : 26), color: { argb: st === 'simple' ? C : INK } }, fmt: st === 'standard' ? '"¥"#,##0" −"' : YEN, align: { horizontal: 'left', indent: 1 } });
