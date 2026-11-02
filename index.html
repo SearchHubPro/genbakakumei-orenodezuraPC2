@@ -2077,7 +2077,8 @@ var INV = (function () {
       pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, horizontalCentered: true,
         margins: { left: 0.4, right: 0.4, top: 0.45, bottom: 0.4, header: 0.2, footer: 0.2 } } });
     // 列：A=No / B〜H=品目 / I〜J=数量 / K〜L=単位 / M〜O=単価 / P〜R=金額（PDF の表と同じ割合）
-    var W = [5.6, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 4.9, 4.9, 4.1, 4.1, 4.5, 4.5, 4.5, 5.6, 5.6, 5.6];
+    // 横幅の合計を A4 の印刷できる幅（約538pt）に収める。はみ出すと Excel がページ全体を縮めて、行が詰まり下に余白ができる
+    var W = [4.72, 6.3, 6.3, 6.3, 6.3, 6.3, 6.3, 6.3, 4.15, 4.15, 3.43, 3.43, 3.72, 3.72, 3.72, 4.72, 4.72, 4.72];
     ws.columns = W.map(function (w) { return { width: w }; });
     var FONT = '游ゴシック', thin = function (argb) { return { style: 'thin', color: { argb: argb || 'FF94A3B8' } }; };
     function cell(addr) { return ws.getCell(addr); }
