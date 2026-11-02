@@ -2070,21 +2070,26 @@ var INV = (function () {
     await loadLib('xls', function () { return !!window.ExcelJS; });
     var r = v.recipient || {}, f = v.issuer || {}, t = sumOf(v), lk = look(), col = COLORS[lk.color], st = lk.style;
     var A = function (hex) { return 'FF' + hex.replace('#', '').toUpperCase(); };
-    var C = A(col.c), L = A(col.l), T = A(col.t), WHITE = 'FFFFFFFF', INK = 'FF111111', GRAY = 'FF64748B', LINE = 'FFCBD5E1';
+    var C = A(col.c), L = A(col.l), T = A(col.t), WHITE = 'FFFFFFFF', INK = 'FF111111', GRAY = 'FF64748B', LINE = 'FFE5E7EB', DARK = 'FF333333';
     var fill = function (argb) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: argb } }; };
+    // 寸法はすべて PDF の紙（横 894px が A4 の幅 595.28pt）から測った値。P(px) で pt に、F(px) で文字の大きさ（0.5pt 刻み）に直す
+    var K = 595.28 / 894, P = function (px) { return Math.round(px * K * 100) / 100; }, F = function (px) { return Math.round(px * K * 2) / 2; };
     var wb = new window.ExcelJS.Workbook();
     var ws = wb.addWorksheet('請求書', { views: [{ showGridLines: false }], properties: { defaultRowHeight: 15 },
       pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, horizontalCentered: true,
-        margins: { left: 0.4, right: 0.4, top: 0.45, bottom: 0.4, header: 0.2, footer: 0.2 } } });
-    // 列：A=No / B〜H=品目 / I〜J=数量 / K〜L=単位 / M〜O=単価 / P〜R=金額（PDF の表と同じ割合）
-    // 横幅の合計を A4 の印刷できる幅（約538pt）に収める。はみ出すと Excel がページ全体を縮めて、行が詰まり下に余白ができる
-    var W = [4.72, 6.3, 6.3, 6.3, 6.3, 6.3, 6.3, 6.3, 4.15, 4.15, 3.43, 3.43, 3.72, 3.72, 3.72, 4.72, 4.72, 4.72];
+        margins: { left: P(50) / 72, right: P(50) / 72, top: P(46) / 72, bottom: 0.2, header: 0.15, footer: 0.08 } } });
+    // 列：A=No / B〜H=品目 / I〜J=数量 / K〜L=単位 / M〜O=単価 / P〜R=金額。PDF の表の列（40・409・70・58・96・120px）と同じ幅。
+    // B は「合計」「備考」の見出し（A〜B＝96px）、C までで「ご請求金額」の見出し（A〜C＝120px）になるように割る。
+    // Excel の列の幅は 1 = 8 画素（游ゴシックの Excel で測った値）。画素 → pt は 0.75
+    var COLPX = [40, 56, 24, 65.8, 65.8, 65.8, 65.8, 65.8, 35, 35, 29, 29, 32, 32, 32, 40, 40, 40];
+    var W = COLPX.map(function (px) { return Math.round(P(px) / 0.75 / 8 * 100) / 100; });
     ws.columns = W.map(function (w) { return { width: w }; });
-    var FONT = '游ゴシック', thin = function (argb) { return { style: 'thin', color: { argb: argb || 'FF94A3B8' } }; };
+    var letters = 'ABCDEFGHIJKLMNOPQR';
+    var FONT = '游ゴシック';
     function cell(addr) { return ws.getCell(addr); }
     function put(addr, val, o) {
       o = o || {}; var c = cell(addr); c.value = val;
-      c.font = Object.assign({ name: FONT, size: 9, color: { argb: INK } }, o.font || {});
+      c.font = Object.assign({ name: FONT, size: F(13), color: { argb: INK } }, o.font || {});
       c.alignment = Object.assign({ vertical: 'middle' }, o.align || {});
       if (o.fmt) c.numFmt = o.fmt; if (o.fill) c.fill = fill(o.fill);
       return c;
@@ -2092,132 +2097,151 @@ var INV = (function () {
     function merge(range, val, o) { ws.mergeCells(range); var c = put(range.split(':')[0], val, o); if (o && o.fill) eachCell(range, function (x) { x.fill = fill(o.fill); }); return c; }
     function eachCell(range, fn) { var a = range.split(':'), s = cell(a[0]), en = cell(a[1] || a[0]); for (var rr = s.row; rr <= en.row; rr++) for (var cc = s.col; cc <= en.col; cc++) fn(ws.getCell(rr, cc), rr, cc, s, en); }
     function box(range, argb, w) { eachCell(range, function (x, rr, cc, s, en) { var b = Object.assign({}, x.border || {}), ln = { style: w || 'thin', color: { argb: argb } }; if (rr === s.row) b.top = ln; if (rr === en.row) b.bottom = ln; if (cc === s.col) b.left = ln; if (cc === en.col) b.right = ln; x.border = b; }); }
-    function grid(range, argb) { eachCell(range, function (x) { var ln = { style: 'thin', color: { argb: argb } }; x.border = { top: ln, bottom: ln, left: ln, right: ln }; }); }
-    function under(range, argb, w) { eachCell(range, function (x) { x.border = Object.assign({}, x.border || {}, { bottom: { style: w || 'thin', color: { argb: argb } } }); }); }
+    function edge(range, side, argb, w) { eachCell(range, function (x, rr, cc, s, en) { var hit = side === 'top' ? rr === s.row : side === 'bottom' ? rr === en.row : side === 'left' ? cc === s.col : cc === en.col; if (!hit) return; var b = Object.assign({}, x.border || {}); b[side] = { style: w || 'thin', color: { argb: argb } }; x.border = b; }); }
     function h(row, pt) { ws.getRow(row).height = pt; }
     var YEN = '"¥"#,##0', NUM = '#,##0';
+    // 列の右端（pt）から、いちばん近い列の境目を探す（合計欄を PDF と同じ幅で区切る）
+    var colEnd = []; COLPX.reduce(function (a, px, i) { colEnd[i] = a + P(px); return colEnd[i]; }, 0);
+    function nearCol(pt) { var best = 0; colEnd.forEach(function (e2, i) { if (Math.abs(e2 - pt) < Math.abs(colEnd[best] - pt)) best = i; }); return best; }
 
-    // ---- 上：発行日・請求書・宛先 ----
-    h(1, 20); h(2, 20); h(3, 8);
-    put('A1', '発行日：' + jpDate(v.issue_date), { font: { size: 9 } });
-    var titleColor = st === 'color' ? T : (st === 'standard' ? INK : C);
-    merge('M1:R2', st === 'color' ? '請　求　書' : '請 求 書', { font: { size: st === 'color' ? 24 : 16, bold: true, color: { argb: titleColor } }, align: { horizontal: st === 'color' ? 'center' : 'right' } });
-    if (st !== 'color') under('M2:R2', C, 'medium');
-    h(4, 14); h(5, 14); h(6, 20);
-    put('A4', r.postal ? '〒' + fmtZip(r.postal) : '');
-    put('A5', r.address || '');
+    // ---- 上：発行日・請求書・宛先（PDF：標準 50px・カラー 69px・シンプル 48px の見出し）----
+    var headPx = st === 'color' ? 69 : (st === 'standard' ? 50 : 48);
+    h(1, P(headPx / 2)); h(2, P(headPx / 2)); h(3, P(14));
+    put('A1', '発行日：' + jpDate(v.issue_date), { align: { vertical: 'top' } });
+    if (st === 'color') merge('J1:R2', '請　求　書', { font: { size: F(46), bold: true, color: { argb: T } }, align: { horizontal: 'right' } });
+    else if (st === 'standard') { merge('O1:R2', '請　求　書', { font: { size: F(30), bold: true, color: { argb: INK } }, align: { horizontal: 'center' } }); edge('O2:R2', 'bottom', C, 'double'); }
+    else { merge('O1:R2', '請 求 書', { font: { size: F(26), bold: true, color: { argb: C } }, align: { horizontal: 'right' } }); edge('A2:R2', 'bottom', C, 'medium'); }
+    h(4, P(21)); h(5, P(21)); h(6, P(st === 'standard' ? 30 : 29));          // 宛名は 27〜28px＋上に 2px
+    put('A4', r.postal ? '〒' + fmtZip(r.postal) : '', { font: { size: F(14) } });
+    put('A5', r.address || '', { font: { size: F(14) } });
     var to = (r.name || '') + '　' + (r.person ? r.person + ' ' + (r.honorific || '様') : (r.honorific === '様' ? '御中' : (r.honorific || '')));
-    merge('A6:H6', to, { font: { size: 12, bold: true } });
-    if (st === 'standard') under('A6:H6', INK);
+    merge('A6:H6', to, { font: { size: F(18), bold: true } });
+    if (st === 'standard') edge('A6:H6', 'bottom', INK);
 
     // ---- ご請求金額・振込先 ----
-    h(7, 14); h(8, 16); h(9, 22); h(10, 22); h(11, 14); h(12, 8);
-    put('A8', '下記の通りご請求申し上げます。', { font: { size: 9 } });
     var bank = String(f.bank || '');
     if (st === 'color') {
-      merge('A9:C10', 'ご請求金額', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
-      merge('D9:H10', v.total, { font: { bold: true, size: 16 }, fmt: YEN, align: { horizontal: 'left', indent: 1 } });
-      merge('K9:L10', '振込先', { font: { bold: true, size: 9, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
-      merge('M9:R11', bank, { font: { size: 8.5 }, align: { vertical: 'top', wrapText: true, indent: 1 } });
+      h(7, P(22)); h(8, P(22)); h(9, P(22)); h(10, P(22)); h(11, P(4)); h(12, P(4));
+      put('A8', '下記の通りご請求申し上げます。', { font: { size: F(12) } });
+      merge('A9:C10', 'ご請求金額', { font: { bold: true, size: F(15), color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('D9:H10', v.total, { font: { bold: true, size: F(24) }, fmt: YEN, align: { horizontal: 'left', indent: 1 } });
+      merge('I9:K10', '振込先', { font: { bold: true, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('L9:R10', bank, { align: { vertical: 'top', wrapText: true, indent: 1 } });
     } else {
-      merge('A9:G9', 'ご請求金額（税込）', { font: { size: 9 } });
-      merge('A10:G11', v.total, { font: { bold: true, size: 18, color: { argb: st === 'simple' ? C : INK } }, fmt: st === 'standard' ? '"¥"#,##0" −"' : YEN });
-      if (st === 'standard') box('A9:G11', C, 'medium');
-      else eachCell('A9:A11', function (x) { x.border = { left: { style: 'thick', color: { argb: C } } }; });
-      merge('K9:R9', '振込先', { font: { bold: true, size: 9 } });
-      merge('K10:R11', bank, { font: { size: 8.5 }, align: { vertical: 'top', wrapText: true } });
-      if (st === 'standard') box('K9:R11', 'FF475569');
-      else eachCell('K9:K11', function (x) { x.border = { left: { style: 'thin', color: { argb: LINE } } }; });
+      // 左：文（25.5px）＋金額の箱、右：振込先の箱（上の文の行から箱の下まで）
+      var amtPx = st === 'standard' ? [29.5, 46] : [23.5, 43], amtEnd = st === 'standard' ? 'F' : 'D', bk = st === 'standard' ? 'K' : 'O';
+      h(7, P(20)); h(8, P(25.5)); h(9, P(amtPx[0])); h(10, P(amtPx[1] / 2)); h(11, P(amtPx[1] / 2)); h(12, P(8));
+      put('A8', '下記の通りご請求申し上げます。', { align: { vertical: 'top' } });
+      merge('A9:' + amtEnd + '9', 'ご請求金額（税込）', { align: { indent: 1 } });
+      merge('A10:' + amtEnd + '11', v.total, { font: { bold: true, size: F(st === 'standard' ? 24 : 26), color: { argb: st === 'simple' ? C : INK } }, fmt: st === 'standard' ? '"¥"#,##0" −"' : YEN, align: { horizontal: 'left', indent: 1 } });
+      if (st === 'standard') box('A9:' + amtEnd + '11', C, 'medium');
+      else edge('A9:A11', 'left', C, 'thick');
+      merge(bk + '8:R8', '振込先', { font: { bold: true }, align: { indent: 1 } });
+      merge(bk + '9:R11', bank, { align: { vertical: 'top', wrapText: true, indent: 1 } });
+      if (st === 'standard') box(bk + '8:R11', 'FF555555');
+      else edge(bk + '8:' + bk + '11', 'left', L, 'medium');
     }
-    h(13, 14);
-    merge('A13:R13', '※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　対象期間：' + v.period_from + ' 〜 ' + v.period_to, { font: { size: 8, color: { argb: 'FF334155' } } });
+    h(13, P(34));                                                              // 文（18px）＋表までのすき間（16px）
+    merge('A13:R13', '※請求明細をご確認のうえ、上記の口座へお振込みをお願いいたします。　対象期間：' + v.period_from + ' 〜 ' + v.period_to, { font: { size: F(12) }, align: { vertical: 'top' } });
 
     // ---- 明細 ----
-    var HR = 14; h(HR, 19);
+    var HR = 14, rowPx = st === 'color' ? 23.5 : 28.5; h(HR, P(st === 'color' ? 25.5 : 28.5));
     var cols = [['A', 'A', 'No'], ['B', 'H', '品　目'], ['I', 'J', '数　量'], ['K', 'L', '単　位'], ['M', 'O', '単　価'], ['P', 'R', '金　額']];
     cols.forEach(function (c2) {
       var rg = c2[0] + HR + ':' + c2[1] + HR;
-      var o = { font: { bold: true, size: 9, color: { argb: st === 'color' ? WHITE : (st === 'simple' ? C : INK) } }, align: { horizontal: c2[2] === '品　目' ? 'left' : 'center', indent: c2[2] === '品　目' ? 1 : 0 } };
+      var o = { font: { bold: true, color: { argb: st === 'color' ? WHITE : (st === 'simple' ? C : INK) } }, align: { horizontal: st === 'simple' || c2[2] === '品　目' ? 'left' : 'center', indent: st === 'simple' || c2[2] === '品　目' ? 1 : 0 } };
       if (st === 'color') o.fill = C; if (st === 'standard') o.fill = L;
       if (c2[0] === c2[1]) put(c2[0] + HR, c2[2], o); else merge(rg, c2[2], o);
+      if (st === 'color' && c2[1] !== 'R') edge(rg, 'right', WHITE, 'medium');
+      if (st === 'standard') box(rg, DARK);
     });
-    if (st === 'standard') grid('A' + HR + ':R' + HR, 'FF94A3B8');
-    if (st === 'simple') under('A' + HR + ':R' + HR, C, 'medium');
-    var lines = v.lines || [], n = Math.max(lines.length, st === 'color' ? 20 : 12), row = HR + 1, rowH = st === 'color' ? 15.5 : 18;
+    if (st === 'simple') edge('A' + HR + ':R' + HR, 'bottom', C, 'medium');
+    var lines = v.lines || [], n = Math.max(lines.length, st === 'color' ? 20 : 12), row = HR + 1;
     for (var i = 0; i < n; i++, row++) {
-      var l = lines[i]; h(row, rowH);
-      var zebra = st === 'color' && i % 2 === 0 ? L : null, base = { font: { size: 9 } };
-      var o = function (x) { var y = Object.assign({}, base, x || {}); if (zebra) y.fill = zebra; return y; };
+      var l = lines[i]; h(row, P(rowPx));
+      var zebra = st === 'color' && i % 2 === 0 ? L : null;
+      var o = function (x) { var y = Object.assign({}, x || {}); if (zebra) y.fill = zebra; return y; };
       var q = l ? Number(l.qty) : null;
-      put('A' + row, l || st === 'color' ? i + 1 : null, o({ align: { horizontal: 'center' }, font: { size: 8.5, color: { argb: st === 'color' && !l ? GRAY : INK } } }));
+      put('A' + row, l || st === 'color' ? i + 1 : null, o({ align: { horizontal: 'center' }, font: { color: { argb: st === 'color' && !l ? GRAY : INK } } }));
       merge('B' + row + ':H' + row, l ? l.item + (l.tax === '対象外' ? '　※' : (l.tax === '最後' ? '　※※' : '')) : null, o({ align: { shrinkToFit: true, indent: 1 } }));
       merge('I' + row + ':J' + row, q, o({ fmt: q !== null && q % 1 !== 0 ? '#,##0.0#' : NUM, align: { horizontal: 'right' } }));
       merge('K' + row + ':L' + row, l ? l.unit : null, o({ align: { horizontal: 'center' } }));
       merge('M' + row + ':O' + row, l ? Number(l.price) : null, o({ fmt: NUM, align: { horizontal: 'right' } }));
       merge('P' + row + ':R' + row, l ? { formula: 'ROUND(I' + row + '*M' + row + ',0)', result: Math.round(l.amount) } : null, o({ fmt: NUM, align: { horizontal: 'right' } }));
-      if (st === 'standard') grid('A' + row + ':R' + row, 'FF94A3B8');
-      if (st === 'color') under('A' + row + ':R' + row, WHITE);
-      if (st === 'simple') under('A' + row + ':R' + row, 'FFE2E8F0');
+      cols.forEach(function (c2) {
+        var rg = c2[0] + row + ':' + c2[1] + row;
+        if (st === 'color' && c2[1] !== 'R') edge(rg, 'right', WHITE, 'medium');
+        if (st === 'standard') box(rg, DARK);
+      });
+      if (st === 'simple') edge('A' + row + ':R' + row, 'bottom', LINE);
     }
 
     // ---- 合計 ----
-    var tr = row; h(tr, 13); h(tr + 1, 20);
-    var lab = { font: { size: 7.5, color: { argb: 'FF334155' } } }, val = { font: { size: 10.5, bold: true }, fmt: YEN, align: { horizontal: 'right' } };
     var parts = [['消費税対象（10%）', t.taxable], ['消費税（10%）', t.tax]];
     if (t.later) parts.push(['消費税は最終回 ※※', t.later]);
     parts.push(['対象外 ※', t.exempt], ['総　額', v.total]);
-    var tEnd = tr + 1, letters = 'ABCDEFGHIJKLMNOPQR';                        // 合計欄の最後の行
+    var tr = row, tEnd;
+    if (st !== 'standard') { h(tr, P(st === 'color' ? 4 : 10)); tr++; }        // 表とのすき間（カラー 4px・シンプル 10px）
     if (st === 'color') {
-      // カラーは PDF と同じ形：左に「合計」、消費税対象・消費税、右に対象外・総額（最終回の分）を縦に積む。1項目＝項目名の行＋金額の行
-      var side = parts.slice(2); tEnd = tr + side.length * 2 - 1;
-      for (var q2 = 0; q2 < side.length; q2++) { h(tr + q2 * 2, 13); h(tr + q2 * 2 + 1, 19); }
-      merge('A' + tr + ':C' + tEnd, '合　計', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
-      [['D', 'G', parts[0]], ['H', 'L', parts[1]]].forEach(function (g) {
-        merge(g[0] + tr + ':' + g[1] + tr, g[2][0], Object.assign({}, lab, { fill: L }));
-        merge(g[0] + (tr + 1) + ':' + g[1] + (tr + 1), g[2][1], Object.assign({}, val, { fill: L }));
+      // PDF と同じ形：左に「合計」（96px）、消費税対象・消費税、右に対象外・総額（最終回の分）を縦に積む。1項目＝項目名の行＋金額の行
+      var lab = { font: { size: F(11) }, align: { indent: 1 }, fill: L }, val = { font: { size: F(16), bold: true }, fmt: YEN, align: { horizontal: 'right', indent: 1 }, fill: L };
+      var side = parts.slice(2), c2e = letters[nearCol(P(96 + 225.2))], c3s = letters[nearCol(P(96 + 225.2)) + 1], c3e = letters[nearCol(P(96 + 450.4))], c4s = letters[nearCol(P(96 + 450.4)) + 1];
+      tEnd = tr + side.length * 2 - 1;
+      for (var q2 = 0; q2 < side.length; q2++) { h(tr + q2 * 2, P(20.5)); h(tr + q2 * 2 + 1, P(q2 < side.length - 1 ? 30 : 28)); }
+      merge('A' + tr + ':B' + tEnd, '合　計', { font: { bold: true, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      [['C', c2e, parts[0]], [c3s, c3e, parts[1]]].forEach(function (g) {
+        merge(g[0] + tr + ':' + g[1] + tr, g[2][0], lab);
+        merge(g[0] + (tr + 1) + ':' + g[1] + (tr + 1), g[2][1], val);
         merge(g[0] + (tr + 2) + ':' + g[1] + tEnd, null, { fill: L });
       });
       side.forEach(function (p, k) {
-        var r1 = tr + k * 2, last = k === side.length - 1;
-        merge('M' + r1 + ':R' + r1, p[0], Object.assign({}, lab, { fill: L }));
-        merge('M' + (r1 + 1) + ':R' + (r1 + 1), p[1], Object.assign({}, val, { font: Object.assign({}, val.font, { size: last ? 12 : 10.5 }), fill: L }));
-        if (!last) under('M' + (r1 + 1) + ':R' + (r1 + 1), WHITE, 'medium');   // 積んだ箱の間の白い線
+        var r1 = tr + k * 2;
+        merge(c4s + r1 + ':R' + r1, p[0], lab);
+        merge(c4s + (r1 + 1) + ':R' + (r1 + 1), p[1], val);
+        if (k < side.length - 1) edge(c4s + (r1 + 1) + ':R' + (r1 + 1), 'bottom', WHITE, 'medium');   // 積んだ箱の間の白い線（2px）
       });
     } else {
-    var start = st === 'color' ? 4 : 1, span = Math.floor((18 - start + 1) / parts.length), letters = 'ABCDEFGHIJKLMNOPQR';
-    if (st === 'color') merge('A' + tr + ':C' + (tr + 1), '合　計', { font: { bold: true, size: 10, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
-    parts.forEach(function (p, k) {
-      var c1 = start + k * span, c2 = k === parts.length - 1 ? 18 : c1 + span - 1, a1 = letters[c1 - 1], a2 = letters[c2 - 1];
-      var last = k === parts.length - 1, bg = st === 'standard' ? null : (st === 'simple' && last ? C : L);
-      var ink = st === 'simple' && last ? WHITE : INK;
-      merge(a1 + tr + ':' + a2 + tr, p[0], Object.assign({}, lab, { font: Object.assign({}, lab.font, { color: { argb: st === 'simple' && last ? WHITE : 'FF334155' } }) }, bg ? { fill: bg } : {}));
-      merge(a1 + (tr + 1) + ':' + a2 + (tr + 1), p[1], Object.assign({}, val, { font: Object.assign({}, val.font, { color: { argb: ink }, size: last ? 12 : 10.5 }) }, bg ? { fill: bg } : {}));
-      if (st === 'standard') box(a1 + tr + ':' + a2 + (tr + 1), 'FF94A3B8');
-      if (st === 'simple') eachCell(a1 + tr + ':' + a2 + (tr + 1), function (x, rr, cc, s, en) { if (cc === en.col && !last) x.border = { right: { style: 'thick', color: { argb: WHITE } } }; });
-    });
+      // 標準・シンプル：同じ幅の箱を横に並べる。上に項目名（13px）、下に金額（15px・太字）
+      tEnd = tr + 1; h(tr, P(st === 'standard' ? 25.5 : 23.5)); h(tr + 1, P(st === 'standard' ? 28.5 : 26.5));
+      var c0 = 0;
+      parts.forEach(function (p, k) {
+        var last = k === parts.length - 1, c1 = last ? 17 : nearCol(P(794 * (k + 1) / parts.length));
+        var a1 = letters[c0], a2 = letters[c1], bg = st === 'simple' ? (last ? C : L) : null, ink = st === 'simple' && last ? WHITE : INK;
+        merge(a1 + tr + ':' + a2 + tr, p[0], Object.assign({ font: { color: { argb: ink } }, align: { indent: 1 } }, bg ? { fill: bg } : {}));
+        merge(a1 + (tr + 1) + ':' + a2 + (tr + 1), p[1], Object.assign({ font: { size: F(15), bold: true, color: { argb: ink } }, fmt: YEN, align: { horizontal: 'right', indent: 1 } }, bg ? { fill: bg } : {}));
+        if (st === 'standard') box(a1 + tr + ':' + a2 + (tr + 1), DARK);
+        if (st === 'simple' && !last) edge(a2 + tr + ':' + a2 + (tr + 1), 'right', WHITE, 'thick');   // 箱のすき間（8px）
+        c0 = c1 + 1;
+      });
     }
     var nr = tEnd + 1, notes = [];
     if (t.exempt) notes.push('※印は消費税の対象外です。');
     if (t.later) notes.push('※※印の消費税は、最終回にまとめてご請求します。');
     if ((v.lines || []).some(function (l2) { return l2.tax === '消費税'; })) notes.push('「消費税（出来高分まとめて）」は、これまでの出来高の消費税をまとめたものです。');
-    h(nr, 14); merge('A' + nr + ':R' + nr, notes.join('　'), { font: { size: 8 } });
+    notes.forEach(function (s, k) { h(nr, P(k === 0 ? 4 + 16.5 : 16.5)); merge('A' + nr + ':R' + nr, s, { font: { size: F(11) }, align: { vertical: 'bottom' } }); nr++; });
 
     // ---- 備考 ----
-    var br = nr + 1; h(br, 16); h(br + 1, 16); h(br + 2, 16);
+    h(nr, P(st === 'color' ? 12 : 14)); var br = nr + 1;                     // 上とのすき間
+    var noteTxt = function () { return { richText: [{ text: '備　考', font: { name: FONT, size: F(13), bold: true, color: { argb: INK } } }, { text: '\n' + (v.note || ''), font: { name: FONT, size: F(13), color: { argb: INK } } }] }; };
     if (st === 'color') {
-      merge('A' + br + ':C' + br, '備　考', { font: { bold: true, size: 9, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
-      merge('A' + (br + 1) + ':R' + (br + 2), v.note || '', { align: { vertical: 'top', wrapText: true } });
+      h(br, P(23.5)); h(br + 1, P(16.5));
+      merge('A' + br + ':B' + br, '備　考', { font: { bold: true, color: { argb: WHITE } }, align: { horizontal: 'center' }, fill: C });
+      merge('C' + br + ':R' + (br + 1), v.note || '', { align: { vertical: 'top', wrapText: true, indent: 1 } });
+      var noteEnd = br + 1;
     } else {
-      merge('A' + br + ':R' + (br + 2), '備　考\n' + (v.note || ''), { font: { size: 9, bold: false }, align: { vertical: 'top', wrapText: true, indent: 1 } });
-      if (st === 'standard') box('A' + br + ':R' + (br + 2), 'FF475569');
+      var nh = st === 'standard' ? 64 : 50; h(br, P(nh / 3)); h(br + 1, P(nh / 3)); h(br + 2, P(nh / 3));
+      merge('A' + br + ':R' + (br + 2), noteTxt(), { align: { vertical: 'top', wrapText: true, indent: 1 } });
+      if (st === 'standard') box('A' + br + ':R' + (br + 2), DARK); else edge('A' + br + ':R' + br, 'top', LINE);
+      noteEnd = br + 2;
     }
 
-    // ---- 会社名・ロゴ・社印 ----
-    var fr = br + 4; h(fr - 1, 10);
+    // ---- 会社名・ロゴ・社印（PDF：上に 22px あけて、右寄せ 420px の欄。ロゴの段は 64px）----
+    var fr = noteEnd + 2; h(fr - 1, P(22));
     // 画像の位置：ExcelJS に列・行の小数で渡すと、列の中のずれが数画素にしかならず社印が左にずれた。
     // 列・行の番号と、その中のずれ（EMU：1画素=9525、1pt=12700）をそのまま渡す
-    var px = W.map(function (w) { return Math.floor(w * 7 + 5); });          // 列の幅（画素）
-    var C0 = 8, BR = 4, RH = 15;                                              // 会社の欄は I 列から。ロゴの行は 4行×15pt（= 80px）
+    var X = function (appPx) { return appPx * K / 0.75; };                    // PDF の画素 → Excel の画素
+    var px = W.map(function (w) { return Math.floor(w * 8 + 0.49); });       // 列の幅（Excel の画素）
+    var C0 = nearCol(P(374)) + 1, BR = 4, RH = P(16);                        // 会社の欄の始まりの列。ロゴの段は 4行×16px
     var at = function (dx, dyPx) {                                          // 画素の位置 → 列・行と、その中のずれ（EMU）
       var c = C0; while (c < px.length - 1 && dx >= px[c]) { dx -= px[c]; c++; }
       var pt = dyPx * 0.75, r0 = fr - 1; while (pt >= RH) { pt -= RH; r0++; }
@@ -2226,20 +2250,21 @@ var INV = (function () {
     for (var k2 = 0; k2 < BR; k2++) h(fr + k2, RH);
     var boxH = BR * RH / 0.75, logoW = 0;
     if (lk.logo) {
-      var sz = await imgSize(lk.logo), lh = 56, lw = Math.round(sz.w * lh / sz.h); if (lw > 260) { lw = 260; lh = Math.round(sz.h * lw / sz.w); }
+      // PDF と同じ：元の大きさのまま。高さ 64px・幅 260px を超えるときだけ縮める
+      var sz = await imgSize(lk.logo), ls = Math.min(1, 64 / sz.h, 260 / sz.w), lw = Math.round(X(sz.w * ls)), lh = Math.round(X(sz.h * ls));
       ws.addImage(wb.addImage({ base64: lk.logo, extension: 'png' }), { tl: at(0, (boxH - lh) / 2), ext: { width: lw, height: lh }, editAs: 'oneCell' });
       logoW = lw;
     } else {
-      merge(letters[C0] + fr + ':R' + (fr + BR - 1), f.company_name || '', { font: { bold: true, size: 14, color: { argb: st === 'standard' ? INK : C } } });
-      logoW = Math.min(260, ((f.company_name || '').length || 4) * 19);
+      merge(letters[C0] + fr + ':R' + (fr + BR - 1), f.company_name || '', { font: { bold: true, size: F(18), color: { argb: st === 'color' ? C : INK } } });
+      logoW = Math.min(X(260), ((f.company_name || '').length || 4) * X(18));
     }
     if (lk.seal) {
-      var sp = SEAL_PX[lk.sealSize];
+      var sp = Math.round(X(SEAL_PX[lk.sealSize]));
       ws.addImage(wb.addImage({ base64: lk.seal, extension: 'png' }), { tl: at(Math.max(0, logoW - sp * 0.45), (boxH - sp) / 2), ext: { width: sp, height: sp }, editAs: 'oneCell' });
     }
     var ar = fr + BR, addr = [lk.logo ? f.company_name : '', ((f.postal ? '〒' + fmtZip(f.postal) + ' ' : '') + (f.address || '')).trim(),
       ((f.tel ? 'TEL：' + fmtTel(f.tel) : '') + (f.person ? '　担当：' + f.person : '')).trim(), f.reg_no ? '登録番号　' + f.reg_no : ''].filter(Boolean);
-    addr.forEach(function (s, k3) { h(ar + k3, 13); merge(letters[C0] + (ar + k3) + ':R' + (ar + k3), s, { font: { size: 8.5 } }); });
+    addr.forEach(function (s, k3) { h(ar + k3, P(k3 === 0 ? 4 + 18.75 : 18.75)); merge(letters[C0] + (ar + k3) + ':R' + (ar + k3), s, { font: { size: F(12.5) }, align: { vertical: 'bottom' } }); });
     ws.pageSetup.printArea = 'A1:R' + (ar + addr.length);
     var buf = await wb.xlsx.writeBuffer();
     return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
